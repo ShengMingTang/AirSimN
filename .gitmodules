@@ -1,0 +1,6 @@
+[submodule "application"]
+	path = application
+	url = https://github.com/ShengMingTang/nsAirSim_ApplicationCode
+[submodule "network"]
+	path = network
+	url = https://github.com/ShengMingTang/nsAirSim_ns3Code
