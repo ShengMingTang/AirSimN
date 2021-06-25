@@ -121,6 +121,7 @@ void AirSimSync::takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsA
     zmq::message_t message;
     zmq::recv_result_t res;
     zmq::message_t ntf(1);
+    float step; // next simulation step
     
     // notify AirSim
     zmqSendSocket.send(ntf, zmq::send_flags::dontwait);
@@ -132,7 +133,6 @@ void AirSimSync::takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsA
     
     std::string s(static_cast<char*>(message.data()), message.size());
     std::size_t n = s.find("bye");
-    // This implied that a hard limit of 10 times updateGranularity for AirSim to run a period
     if((!res.has_value() || res.value() < 0) || (n != std::string::npos)){
         double endTime = 0.0;
         if(event.IsRunning()){
@@ -154,6 +154,10 @@ void AirSimSync::takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsA
         }
         Simulator::Stop(Seconds(endTime));
     }
+    else{ // AirSim must transmit a number
+        step = atof(s.c_str());
+        NS_LOG_INFO("Next sim step " << step);
+    }
     
     // ns' turn at time t, AirSim at time t + 1
     // packet send
@@ -165,7 +169,7 @@ void AirSimSync::takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsA
         uavsApp[i]->scheduleTx();
     }
 
-    // will fire at time t + 1
-    Time tNext(Seconds(updateGranularity));
+    // will fire at time t + step
+    Time tNext(Seconds(step));
     event = Simulator::Schedule(tNext, &AirSimSync::takeTurn, this, gcsApp, uavsApp);
 }

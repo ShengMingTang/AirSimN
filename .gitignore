@@ -5,3 +5,4 @@ ns-*/
 AirSimNH/
 compressed/
 !compressed/ns*
+application/__*

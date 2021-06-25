@@ -10,12 +10,7 @@ UNREAL_ENV='AirSimNH'
 UE4_PROJECT_ROOT="$UNREAL_ENV/LinuxNoEditor/"
 echo "Using Unreal Env as $UNREAL_ENV"
 
-if ! [ -d "$1" ]; then
-    echo "settings.json path not set, leave as it is"
-else
-    echo "Use settings in $1"
-    cp $1 $HOME/Documents/AirSim/settings.json
-fi
+cp $1 $HOME/Documents/AirSim/settings.json
 
 # output surpressed
 "$UE4_PROJECT_ROOT/$UNREAL_ENV/Binaries/Linux/$UNREAL_ENV" -windowed >/dev/null &

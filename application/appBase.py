@@ -278,8 +278,8 @@ class UavAppBase(AppBase, threading.Thread):
         Basic utility test including Tx, Rx, MsgRaw
         paired with GcsApp.selfTest()
         '''
-        delay = 1.0
-        Ctrl.Wait(delay)
+        Ctrl.WaitUntil(1.0, lambda: print(f'{self.name} at 1.0, got {Ctrl.GetSimTime()}'))
+        Ctrl.Wait(0.95)
         print(f'{self.name} is testing')
         msg = MsgRaw(b'I\'m %b' % (bytes(self.name, encoding='utf-8')))
         while self.Tx(msg) < 0:
@@ -368,8 +368,7 @@ class GcsAppBase(AppBase, threading.Thread):
         Basic utility test including Tx, Rx, MsgRaw
         paired with UavApp.selfTest()
         '''
-        delay = 1.0
-        Ctrl.Wait(delay)
+        Ctrl.Wait(3.0)
         print(f'{self.name} is testing')
         msg = MsgRaw(b'I\'m GCS')
         while self.Tx(msg, 'A') is False:

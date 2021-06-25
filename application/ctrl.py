@@ -17,6 +17,7 @@ NS2AIRSIM_CTRL_PORT = 8000
 AIRSIM2NS_CTRL_PORT = 8001
 GCS_APP_START_TIME = 0.1
 UAV_APP_START_TIME = 0.2
+VERBOSE=False
 
 '''
 Remember to reopen AirSim if non-ns3 part is modified
@@ -85,8 +86,9 @@ class Ctrl(threading.Thread):
     suspended = []
     netConfig = {}
     sn = 0 # serial number
+    numFreeze = 0
 
-    def __init__(self, context, verbose=False, **kwargs):
+    def __init__(self, context, **kwargs):
         '''
         Control the pace of simulation
         Note that there should be only 1 instance of this class
@@ -105,20 +107,36 @@ class Ctrl(threading.Thread):
         self.client = airsim.MultirotorClient()
         self.client.confirmConnection()
         self.client.simRunConsoleCommand('stat fps')
-        
-        self.verbose = verbose
     
     @staticmethod
-    def Wait(delay):
+    def WaitUntil(t, cb=None):
         '''
-        Let the calling thread wait the specified amount of time
-        Reutrn immediately if this thread is not running
+        Let the calling thread wait until t
+        Return immediately if this thread is not running
+        @param cb: callback func with empty args
         '''
         with Ctrl.mutex:
             isRunning = Ctrl.isRunning
             if isRunning is True:
                 cond = threading.Condition()
-                heapq.heappush(Ctrl.suspended, (Ctrl.simTime + delay, Ctrl.sn, cond))
+                heapq.heappush(Ctrl.suspended, (t, Ctrl.sn, cond, cb))
+                Ctrl.sn += 1
+        if isRunning is True:
+            cond.acquire()
+            cond.wait()
+            cond.release()
+    @staticmethod
+    def Wait(delay, cb=None):
+        '''
+        Let the calling thread wait the specified amount of time
+        Return immediately if this thread is not running
+        @param cb: callback func with empty args
+        '''
+        with Ctrl.mutex:
+            isRunning = Ctrl.isRunning
+            if isRunning is True:
+                cond = threading.Condition()
+                heapq.heappush(Ctrl.suspended, (Ctrl.simTime + delay, Ctrl.sn, cond, cb))
                 Ctrl.sn += 1
         if isRunning is True:
             cond.acquire()
@@ -131,10 +149,11 @@ class Ctrl(threading.Thread):
         notfiy the waiting thread if delay is expired
         notify every waiting if simulation is not running
         '''
+        cb = None
         with Ctrl.mutex:
-            if Ctrl.isRunning: # maintain delay
-                while len(Ctrl.suspended) > 0 and Ctrl.simTime >= Ctrl.suspended[0][0]:
-                    t, sn, cond = Ctrl.suspended[0]
+            if Ctrl.isRunning: # maintain delay, release if error < updateGranularity/2
+                while len(Ctrl.suspended) > 0 and (abs(Ctrl.simTime - Ctrl.suspended[0][0]) <= Ctrl.netConfig['updateGranularity']/2 or Ctrl.suspended[0][0] < Ctrl.simTime):
+                    t, sn, cond, cb = Ctrl.suspended[0]
                     cond.acquire()
                     cond.notify()
                     cond.release()
@@ -145,6 +164,8 @@ class Ctrl(threading.Thread):
                     cond.acquire()
                     cond.notify()
                     cond.release()
+        if cb is not None:
+                cb()
     @staticmethod
     def ShouldContinue():
         '''
@@ -275,21 +296,45 @@ class Ctrl(threading.Thread):
         Ctrl.netConfig = netConfig
         Ctrl.SetEndTime(netConfig["endTime"])
         return netConfig
+    @staticmethod
+    def Freeze(toFreeze):
+        '''
+        Freeze or unfreeze the simulation clock
+        This is for those threads whose computational load is most spent on AirSim APIs
+        '''
+        with Ctrl.mutex:
+            Ctrl.numFreeze = Ctrl.numFreeze + 1 if toFreeze else max(Ctrl.numFreeze-1, 0)
+    def nextSimStepSize(self):
+        '''
+        return the next simulation step
+        '''
+        with self.mutex:
+            # The suspended event occur earlier
+            if len(Ctrl.suspended) > 0 and Ctrl.suspended[0][0] < Ctrl.simTime + self.netConfig['updateGranularity']:
+                ret = Ctrl.suspended[0][0] - Ctrl.simTime
+            else:
+                ret = self.netConfig['updateGranularity']
+        return ret
     def advance(self):
         '''
         advace the simulation by a small step
         '''
         try:
+            # ns3 has finished the previous simulation step
             msg = self.zmqRecvSocket.recv()
-            # this will block until resumed
-            self.client.simContinueForTime(self.netConfig['updateGranularity'])
-            Ctrl.NotifyWait()
             with Ctrl.mutex:
-                Ctrl.simTime += self.netConfig['updateGranularity']
-                Ctrl.lastTimestamp = time.time()
-                self.zmqSendSocket.send_string('')
-                if self.verbose:
-                    print(f'Time = {Ctrl.simTime}')
+                freezed = Ctrl.numFreeze
+            if freezed == 0:
+                # this will block until resumed
+                step = self.nextSimStepSize()
+                self.client.simContinueForTime(step)
+                Ctrl.NotifyWait()
+                with Ctrl.mutex:
+                    Ctrl.simTime += step
+                    Ctrl.lastTimestamp = time.time()
+                    self.zmqSendSocket.send_string(f'{step}')
+                    if VERBOSE:
+                        print(f'Time = {Ctrl.simTime}')
         except zmq.ZMQError:
             print('ctrl msg not received')
     def run(self):

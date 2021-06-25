@@ -22,7 +22,7 @@
 		  }
     },
 
-	"updateGranularity": 0.01,
+	"updateGranularity": 0.2,
             
 	"segmentSize": 1448,
 	"numOfCong": 0,
@@ -44,9 +44,9 @@
 	"useWifi": 0,
 	
 	"isMainLogEnabled": 0,
-	"isGcsLogEnabled": 0,
-	"isUavLogEnabled": 0,
+	"isGcsLogEnabled": 1,
+	"isUavLogEnabled": 1,
 	"isCongLogEnabled": 0,
-	"isSyncLogEnabled": 0,
+	"isSyncLogEnabled": 1,
 	"endTime": 5.0
 }
