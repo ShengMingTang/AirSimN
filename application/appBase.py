@@ -16,8 +16,8 @@ from appProtocolBase import AppSerializer, MsgBase
 from ctrl import *
 from msg import *
 
-
-IOTIMEO = 1000 # I/O timeout for AppReceiver and AppSender
+IOTIMEO = 3000 # in ms to let AppReceiver have a chance to break
+TARGET = 'selftest' # 'selftest' | 'stream
 
 class AppReceiver(threading.Thread):
     '''
@@ -280,6 +280,10 @@ class UavAppBase(AppBase, threading.Thread):
         '''
         Ctrl.WaitUntil(1.0, lambda: print(f'{self.name} at 1.0, got {Ctrl.GetSimTime()}'))
         Ctrl.Wait(0.95)
+        Ctrl.Freeze(True)
+        print(f'{self.name} at frozen, got {Ctrl.GetSimTime()}')
+        Ctrl.Freeze(False)
+        Ctrl.Wait(0.5234, lambda: print(f'{self.name} at 2.4734, got {Ctrl.GetSimTime()}'))
         print(f'{self.name} is testing')
         msg = MsgRaw(b'I\'m %b' % (bytes(self.name, encoding='utf-8')))
         while self.Tx(msg) < 0:
@@ -349,8 +353,10 @@ class UavAppBase(AppBase, threading.Thread):
                 print(f'{self.name} streaming res = {res}')
     def run(self, **kwargs):
         self.beforeRun()
-        self.selfTest()
-        # self.streamingTest();
+        if TARGET == 'selftest':
+            self.selfTest()
+        elif TARGET == 'stream':
+            self.streamingTest();
         self.afterRun()
         print(f'{self.name} joined')
 class GcsAppBase(AppBase, threading.Thread):
@@ -438,7 +444,9 @@ class GcsAppBase(AppBase, threading.Thread):
         plt.clf()
     def run(self, **kwargs):
         self.beforeRun()
-        self.selfTest()
-        # self.streamingTest();
+        if TARGET == 'selftest':
+            self.selfTest()
+        elif TARGET == 'stream':
+            self.streamingTest();
         self.afterRun()
         print(f'{self.name} joined')

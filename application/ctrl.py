@@ -165,7 +165,7 @@ class Ctrl(threading.Thread):
                     cond.notify()
                     cond.release()
         if cb is not None:
-                cb()
+            cb()
     @staticmethod
     def ShouldContinue():
         '''
