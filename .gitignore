@@ -1,0 +1,7 @@
+log/*.log
+settings/
+!settings/selftest.json
+ns-*/
+AirSimNH/
+compressed/
+!compressed/ns*
