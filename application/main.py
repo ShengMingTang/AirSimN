@@ -22,7 +22,7 @@ if __name__ == '__main__':
         
     json_path = Path.home()/'Documents'/'AirSim'/'settings.json'
 
-    context = zmq.Context()
+    context = zmq.Context(5)
     ctrlThread = Ctrl(context)
     netConfig = ctrlThread.sendNetConfig(json_path)
 

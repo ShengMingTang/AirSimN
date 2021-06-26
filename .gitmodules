@@ -1,3 +1,6 @@
 [submodule "AirSim"]
 	path = AirSim
 	url = https://github.com/microsoft/AirSim.git
+[submodule "yolov5"]
+	path = yolov5
+	url = https://github.com/ultralytics/yolov5

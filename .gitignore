@@ -1,9 +1,12 @@
 log/*.log
-settings/
-!settings/selftest.json
+settings/selftest.json
+settings/**/pic
+settings/**/log.txt
+settings/**/**.mp4
+!settings/**/settings.json
 ns-*/
 AirSimNH/
 compressed/
 !compressed/ns*
+application/yolov5s.pt
 application/__*
-application/app.py

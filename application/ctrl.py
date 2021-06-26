@@ -17,7 +17,7 @@ NS2AIRSIM_CTRL_PORT = 8000
 AIRSIM2NS_CTRL_PORT = 8001
 GCS_APP_START_TIME = 0.1
 UAV_APP_START_TIME = 0.2
-VERBOSE=False
+VERBOSE=True
 
 '''
 Remember to reopen AirSim if non-ns3 part is modified
@@ -81,12 +81,12 @@ class Ctrl(threading.Thread):
     endTime = math.inf
     mutex = threading.Lock()
     simTime = 0
-    lastTimestamp = time.time()
     isRunning = True
     suspended = []
     netConfig = {}
     sn = 0 # serial number
-    numFreeze = 0
+    freezeSet = set()
+    freezeCond = threading.Condition()
 
     def __init__(self, context, **kwargs):
         '''
@@ -117,55 +117,23 @@ class Ctrl(threading.Thread):
         '''
         with Ctrl.mutex:
             isRunning = Ctrl.isRunning
-            if isRunning is True:
-                cond = threading.Condition()
-                heapq.heappush(Ctrl.suspended, (t, Ctrl.sn, cond, cb))
-                Ctrl.sn += 1
-        if isRunning is True:
+            tsim = Ctrl.simTime
+            sn = Ctrl.sn
+            Ctrl.sn += 1
+        # suspended
+        if isRunning is True and t > tsim:
+            cond = threading.Condition()
+            with Ctrl.mutex:
+                heapq.heappush(Ctrl.suspended, (t, sn, cond, cb))
             cond.acquire()
             cond.wait()
             cond.release()
+        if cb is not None:
+            return cb()
+        return None
     @staticmethod
     def Wait(delay, cb=None):
-        '''
-        Let the calling thread wait the specified amount of time
-        Return immediately if this thread is not running
-        @param cb: callback func with empty args
-        '''
-        with Ctrl.mutex:
-            isRunning = Ctrl.isRunning
-            if isRunning is True:
-                cond = threading.Condition()
-                heapq.heappush(Ctrl.suspended, (Ctrl.simTime + delay, Ctrl.sn, cond, cb))
-                Ctrl.sn += 1
-        if isRunning is True:
-            cond.acquire()
-            cond.wait()
-            cond.release()
-    @staticmethod
-    def NotifyWait():
-        '''
-        internal use only
-        notfiy the waiting thread if delay is expired
-        notify every waiting if simulation is not running
-        '''
-        cb = None
-        with Ctrl.mutex:
-            if Ctrl.isRunning: # maintain delay, release if error < updateGranularity/2
-                while len(Ctrl.suspended) > 0 and (abs(Ctrl.simTime - Ctrl.suspended[0][0]) <= Ctrl.netConfig['updateGranularity']/2 or Ctrl.suspended[0][0] < Ctrl.simTime):
-                    t, sn, cond, cb = Ctrl.suspended[0]
-                    cond.acquire()
-                    cond.notify()
-                    cond.release()
-                    heapq.heappop(Ctrl.suspended)
-            else: # release all pending threads
-                while len(Ctrl.suspended) > 0:
-                    t, sn, cond = heapq.heappop(Ctrl.suspended)
-                    cond.acquire()
-                    cond.notify()
-                    cond.release()
-        if cb is not None:
-            cb()
+        Ctrl.WaitUntil(Ctrl.GetSimTime() + delay, cb)
     @staticmethod
     def ShouldContinue():
         '''
@@ -174,7 +142,6 @@ class Ctrl(threading.Thread):
         with Ctrl.mutex:
             isRunning = Ctrl.isRunning
         return isRunning and Ctrl.GetSimTime() < Ctrl.GetEndTime()
-   
     @staticmethod
     def SetEndTime(endTime):
         with Ctrl.mutex:
@@ -193,13 +160,25 @@ class Ctrl(threading.Thread):
             temp = Ctrl.simTime
         return temp
     @staticmethod
-    def GetFineTime():
-        '''
-        get continuous version of time
-        '''
+    def GetNetConfig():
         with Ctrl.mutex:
-            temp = Ctrl.simTime + (time.time() - Ctrl.lastTimestamp)
-        return temp
+            ret = Ctrl.netConfig
+        return ret
+    @staticmethod
+    def Freeze(toFreeze):
+        '''
+        Freeze or unfreeze the simulation clock
+        This is for those threads whose computational load is most spent on AirSim APIs
+        '''
+        tid = threading.get_native_id()
+        Ctrl.freezeCond.acquire()
+        if toFreeze:
+            Ctrl.freezeSet.add(tid)
+        elif tid in Ctrl.freezeSet:
+            Ctrl.freezeSet.remove(tid)
+            if len(Ctrl.freezeSet) == 0:
+                Ctrl.freezeCond.notify()
+        Ctrl.freezeCond.release()
     
     def waitForSyncStart(self):
         '''
@@ -212,12 +191,6 @@ class Ctrl(threading.Thread):
         # static member init
         with Ctrl.mutex:
             Ctrl.simTime = 0
-            Ctrl.lastTimestamp = time.time()
-    @staticmethod
-    def GetNetConfig():
-        with Ctrl.mutex:
-            ret = Ctrl.netConfig
-        return ret
     def sendNetConfig(self, json_path):
         '''
         send network configuration to and config ns
@@ -296,14 +269,7 @@ class Ctrl(threading.Thread):
         Ctrl.netConfig = netConfig
         Ctrl.SetEndTime(netConfig["endTime"])
         return netConfig
-    @staticmethod
-    def Freeze(toFreeze):
-        '''
-        Freeze or unfreeze the simulation clock
-        This is for those threads whose computational load is most spent on AirSim APIs
-        '''
-        with Ctrl.mutex:
-            Ctrl.numFreeze = Ctrl.numFreeze + 1 if toFreeze else max(Ctrl.numFreeze-1, 0)
+    
     def nextSimStepSize(self):
         '''
         return the next simulation step
@@ -315,26 +281,49 @@ class Ctrl(threading.Thread):
             else:
                 ret = self.netConfig['updateGranularity']
         return ret
+    def notifyWait(self):
+        '''
+        internal use only
+        notfiy the waiting thread if delay is expired
+        notify every waiting if simulation is not running
+        '''
+        with Ctrl.mutex:
+            isRunning = Ctrl.isRunning
+            tsim = Ctrl.simTime
+            if isRunning:
+                while len(Ctrl.suspended) > 0 and Ctrl.suspended[0][0] <= Ctrl.simTime + Ctrl.netConfig['updateGranularity']/2:
+                    t, sn, cond, cb = Ctrl.suspended[0]
+                    cond.acquire()
+                    cond.notify()
+                    cond.release()
+                    heapq.heappop(Ctrl.suspended)
+            else: # release all pending threads
+                while len(Ctrl.suspended) > 0:
+                    t, sn, cond, cb = heapq.heappop(Ctrl.suspended)
+                    cond.acquire()
+                    cond.notify()
+                    cond.release()
     def advance(self):
         '''
         advace the simulation by a small step
         '''
+        Ctrl.freezeCond.acquire()
+        if len(Ctrl.freezeSet) != 0:
+            print(f'GCS, {len(Ctrl.freezeSet)}')
+            Ctrl.freezeCond.wait()
+        Ctrl.freezeCond.release()
         try:
             # ns3 has finished the previous simulation step
             msg = self.zmqRecvSocket.recv()
+            # this will block until resumed
+            step = self.nextSimStepSize()
+            self.client.simContinueForTime(step)
             with Ctrl.mutex:
-                freezed = Ctrl.numFreeze
-            if freezed == 0:
-                # this will block until resumed
-                step = self.nextSimStepSize()
-                self.client.simContinueForTime(step)
-                Ctrl.NotifyWait()
-                with Ctrl.mutex:
-                    Ctrl.simTime += step
-                    Ctrl.lastTimestamp = time.time()
-                    self.zmqSendSocket.send_string(f'{step}')
-                    if VERBOSE:
-                        print(f'Time = {Ctrl.simTime}')
+                Ctrl.simTime += step
+                self.zmqSendSocket.send_string(f'{step}')
+                if VERBOSE:
+                    print(f'Time = {Ctrl.simTime}')
+            self.notifyWait()
         except zmq.ZMQError:
             print('ctrl msg not received')
     def run(self):
@@ -346,5 +335,5 @@ class Ctrl(threading.Thread):
         with Ctrl.mutex:
             Ctrl.isRunning = False
         self.zmqSendSocket.send_string(f'bye {Ctrl.GetEndTime()}')
-        self.NotifyWait()
+        self.notifyWait()
         

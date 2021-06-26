@@ -129,7 +129,6 @@ void AirSimSync::takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsA
     // AirSim's turn at time t
     // block until AirSim sends any (nofitied by AirSim)
     res = zmqRecvSocket.recv(message, zmq::recv_flags::none);
-    NS_LOG_INFO("TIME: " << now);
     
     std::string s(static_cast<char*>(message.data()), message.size());
     std::size_t n = s.find("bye");
@@ -156,7 +155,7 @@ void AirSimSync::takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsA
     }
     else{ // AirSim must transmit a number
         step = atof(s.c_str());
-        NS_LOG_INFO("Next sim step " << step);
+        NS_LOG_INFO("[NS] TIME: " << now << " Next sim step " << step);
     }
     
     // ns' turn at time t, AirSim at time t + 1
