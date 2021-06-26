@@ -6,3 +6,4 @@ AirSimNH/
 compressed/
 !compressed/ns*
 application/__*
+application/app.py
