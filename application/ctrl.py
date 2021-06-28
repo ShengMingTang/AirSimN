@@ -26,6 +26,9 @@ class Ctrl(threading.Thread):
     netConfig = ctrlThread.sendNetConfig(json_path)
     ctrlThread.waitForSyncStart()
     ctrlThread.join()
+    
+    with Ctrl.Frozen():
+        # do some work
     '''
     endTime = math.inf
     mutex = threading.Lock()
@@ -116,6 +119,7 @@ class Ctrl(threading.Thread):
     @staticmethod
     def Freeze(toFreeze):
         '''
+        Internal use only
         Freeze or unfreeze the simulation clock
         This is for those threads whose computational load is most spent on AirSim APIs
         '''
@@ -130,6 +134,11 @@ class Ctrl(threading.Thread):
         Ctrl.freezeCond.release()
     @staticmethod
     def Frozen():
+        '''
+        Context manager for time frozen
+        to compensate extra time generated for simulation
+        (simulation runs slower than real-time, for example take a high quality image in AirSim)
+        '''
         return CtrlFrozen()
     def waitForSyncStart(self):
         '''
@@ -289,6 +298,9 @@ class Ctrl(threading.Thread):
         self.notifyWait()
 
 class CtrlFrozen():
+    '''
+    Context manager class for Ctrl.Frozen()
+    '''
     def __init__(self):
         pass
     def __enter__(self):

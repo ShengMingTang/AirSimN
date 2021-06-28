@@ -16,7 +16,17 @@ NUM_IO_THREADS = 5
 
 class Flow():
     '''
-    Direct attribute access is not Thread Safe
+    Note:
+        There should be no direct, related call of this class
+        (considered as static class)
+        A flow cannot be stopped once it is started
+    Usage:
+        f = Flow(src, dst, msg)
+        f.start() # trigger by AppBase.Tx(...)
+        # direct attribute access is not thread safe
+        with f:
+            # access attribute here
+            pass
     '''
     def __init__(self, src, dst, msg):
         self.id = -1
@@ -34,19 +44,35 @@ class Flow():
     def __exit__(self, exc_type, exc_value, tb):
         self.lock.release()
 class EndPoint():
+    '''
+    Store zmq socket to talk to NS3 application
+    * to trigger request ( usually after Flow.start() )
+    * to store receiver side queue for py app
+    '''
     def __init__(self, zmqSendSocket, *args, **kwargs):
         self.zmqSendSocket = zmqSendSocket
         self.queue = queue.Queue()
 class Router(threading.Thread):
+    '''
+    Control of application data Flow
+    This class is optimized for data passing to avoid redundant data copying.
+    Usage:
+    router = Router(zmq.context(int))
+    # to tell router which port it should use to deliver request
+    router.register(name, port)
+    # after register all (name, port) pairs
+    router.compile() # to build an connected channel for sender side and recver side
+    '''
     def __init__(self, context, *args, **kwargs):
         super().__init__()
-        # [name] -> endPoint
-        self.endPoints = {}
         self.flowIDCount = 0
         self.context = context
         self.sub = context.socket(zmq.PULL)
         self.sub.bind(f'tcp://*:{NS2ROUTER_PORT}')
         self.sub.setsockopt(zmq.RCVTIMEO, IOTIMEO)
+        
+        # [name] -> endPoint
+        self.endPoints = {}
         
         # [src][dst] -> deque
         # left (oldest) ... right (latest)
@@ -56,23 +82,28 @@ class Router(threading.Thread):
         self.mutex = threading.Lock()
     def startFlow(self, f):
         '''
+        request deliver to NS
         <flowid> "SEND" <size> <dst>
         
         NS3 should start its flow and keep transmitting to zmqRecvSocket
         <src(this)> <dst> "SEND" <size>
+        
+        return f (itself)
         '''
         with f:
             if f.id >= 0:
-                raise RuntimeError(f'flowid {f.id} is started')
+                raise RuntimeError(f'flowid {f.id} is already started')
             with self.mutex:
                 f.id = self.flowIDCount
                 self.flowIDCount += 1
                 self.endPoints[f.src].zmqSendSocket.send_string(f'{f.id} {FLOWOP_SEND} {f.size} {f.dst}', 0)
-                # self.endPoints[f.src].zmqSendSocket.send(b'%d %b %d %b' % (f.id, bytes(FLOWOP_SEND, encoding='utf8'), f.size, bytes(f.dst, encoding='utf8')), 0)
                 self.senderSrc2Dst[f.src][f.dst].append(f)
                 self.recverSrc2Dst[f.src][f.dst].append(f)
         return f
     def register(self, name, zmqSendPort, *args, **kwargs):
+        '''
+        To register an entry for an application (in py and NS)
+        '''
         zmqSendSocket = self.context.socket(zmq.PUSH)
         zmqSendSocket.bind(f'tcp://*:{zmqSendPort}')
         zmqSendSocket.setsockopt(zmq.RCVTIMEO, IOTIMEO)
@@ -81,7 +112,8 @@ class Router(threading.Thread):
             return self.endPoints[name]
     def recv(self, dst, block=False):
         '''
-        Let application retrieve object that is completely transmitted
+        Allow an application to retrieve object
+        An object is visible if that corresponding flow is fully received
         '''
         try:
             f = self.endPoints[dst].queue.get(block=block)
@@ -89,6 +121,9 @@ class Router(threading.Thread):
         except queue.Empty:
             return None
     def compile(self):
+        '''
+        To build a connected graph and do house-keeping
+        '''
         with self.mutex:
             for src in self.endPoints:
                 d = {}
@@ -102,7 +137,6 @@ class Router(threading.Thread):
             try:
                 msg = self.sub.recv_string()
                 src, dst, op, *args = msg.split()
-                print(msg)
                 if op == FLOWOP_SEND:
                     # <src> <dst> "SEND" <size>
                     with self.mutex:
@@ -135,5 +169,6 @@ class Router(threading.Thread):
             except zmq.ZMQError:
                 pass
 
+# instantiate a common router for the whole simulation
 context = zmq.Context(NUM_IO_THREADS)
 mainRouter = Router(context)

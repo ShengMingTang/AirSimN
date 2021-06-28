@@ -7,7 +7,7 @@ MOUDLE_DEBUG = False
 
 class MsgBase(metaclass=abc.ABCMeta):
     '''
-    Any application Msg should inherit this
+    # // Any application Msg should inherit this
     '''
     @abc.abstractmethod
     def GetTypeId(self):

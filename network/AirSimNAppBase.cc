@@ -38,11 +38,11 @@ void AirSimNAppBase::acceptCallback(Ptr<Socket> socket, const Address& from)
         MakeCallback(&AirSimNAppBase::connectFailCallback, this)
     );
     socket->SetCloseCallbacks(MakeCallback(&AirSimNAppBase::closeNormCallback, this), MakeCallback(&AirSimNAppBase::closeErrorCallback, this));
-    sendName(socket);
+    sendAuth(socket);
     socket->SetSendCallback(MakeCallback(&AirSimNAppBase::sendCallback, this));
     NS_LOG_INFO("[NS Time: " << Simulator::Now().GetSeconds() << "], [" << m_name << " accept] from " << from);
 }
-/* Trigger next or continue the current one */
+/* Trigger the next flow or continue the current one */
 void AirSimNAppBase::sendCallback(Ptr<Socket> socket, uint32_t txSpace)
 {
     triggerFlow(socket, txSpace);
@@ -85,14 +85,17 @@ void AirSimNAppBase::recvCallback(Ptr<Socket> socket)
         NS_LOG_INFO("[ NS Time: " << Simulator::Now().GetSeconds() << "], [" << m_name  << " recv] from-" << m_address2Name[from] << ", " << packet->GetSize() << " bytes");
     }
 }
+/* auto auth (for symmetry between GCS and UAV) */
 void AirSimNAppBase::connectSuccCallback(Ptr<Socket> socket)
 {
-    sendName(socket);
+    sendAuth(socket);
 }
+/* simply report a FATAL ERROR */
 void AirSimNAppBase::connectFailCallback(Ptr<Socket> socket)
 {
     NS_FATAL_ERROR("[" << m_name << "], connect Fail");
 }
+/* simply log*/
 void AirSimNAppBase::closeNormCallback(Ptr<Socket> socket)
 {
     for(auto it:m_name2Socket){
@@ -101,6 +104,7 @@ void AirSimNAppBase::closeNormCallback(Ptr<Socket> socket)
         }
     }
 }
+/* report which connection has close error (raise FATAL ERROR) */
 void AirSimNAppBase::closeErrorCallback(Ptr<Socket> socket)
 {
     for(auto it:m_name2Socket){
@@ -109,7 +113,8 @@ void AirSimNAppBase::closeErrorCallback(Ptr<Socket> socket)
         }
     }
 }
-void AirSimNAppBase::sendName(Ptr<Socket> socket)
+/* send auth */
+void AirSimNAppBase::sendAuth(Ptr<Socket> socket)
 {
     std::string s(m_name);
     Ptr<Packet> packet = Create<Packet>((const uint8_t*)(s.c_str()), s.size());
@@ -155,6 +160,13 @@ void AirSimNAppBase::triggerFlow(Ptr<Socket> socket, uint32_t txSpace)
         NS_LOG_INFO("[ NS Time: " << Simulator::Now().GetSeconds() << "], [" << m_name  << " send] to " << m_socket2Name[socket] << ", " << size << " bytes");
     }
 }
+
+/*
+to transfer the buffer flow to dst 
+called when request comes first than auth from dst
+then the flows are transfer to another place
+buffer cleared
+*/
 void AirSimNAppBase::flowTransfer(std::string dst)
 {
     Ptr<Socket> socket = m_name2Socket[dst];
@@ -167,6 +179,7 @@ void AirSimNAppBase::flowTransfer(std::string dst)
     triggerFlow(socket, socket->GetTxAvailable());
 }
 /*
+Process request from py app
 <flowid> "SEND" <size> <dst>
 */
 void AirSimNAppBase::processReq(void)
@@ -219,6 +232,7 @@ void AirSimNAppBase::processReq(void)
         res = m_zmqSocketRecv.recv(message, zmq::recv_flags::dontwait);
     }
 }
+/* NS close routine */
 void AirSimNAppBase::StopApplication(void)
 {
     m_running = false;

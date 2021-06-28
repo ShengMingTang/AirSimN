@@ -17,8 +17,7 @@ from ctrl import *
 from msg import *
 from router import Flow, mainRouter
 
-IOTIMEO = 3000 # in ms to let AppReceiver have a chance to break
-TARGET = 'selftest' # 'selftest' | 'stream
+TARGET = 'selftest' # 'selftest' | 'stream' | 'static
 
 class AppBase(metaclass=abc.ABCMeta):
     '''
@@ -28,9 +27,11 @@ class AppBase(metaclass=abc.ABCMeta):
     def __init__(self, name):
         super().__init__()
         self.name = name
-    def Tx(self, obj, toName=None, block=False):
+    def Tx(self, obj, toName=None):
         '''
-        To start flow(s)
+        @param obj: any object that supports __len__()
+        To start a flow
+        return len(obj)
         '''
         f = Flow(self.name, toName, obj)
         f.start()
@@ -38,7 +39,9 @@ class AppBase(metaclass=abc.ABCMeta):
         
     def Rx(self, block=False):
         '''
-        return None if a complete msg is not received
+        @param block: bool, True than block until a msg has arrived (usually False)
+        
+        return None if msg is not fully received
         else
         return (src, msg)
         '''      
@@ -46,12 +49,17 @@ class AppBase(metaclass=abc.ABCMeta):
 
 class UavAppBase(AppBase, threading.Thread):
     '''
-    UavAppBase(name=name, iden=i, context=context)
+    UavAppBase(name=name)
     '''
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-    def Tx(self, obj):
-        super().Tx(obj, 'GCS')   
+    def Tx(self, obj, toName=None):
+        '''
+        Syntax sugar for backward compatible
+        toName will be 'GCS' by default if not specified
+        '''
+        toName = toName if toName is not None else 'GCS'
+        super().Tx(obj, toName)
     def selfTest(self, **kwargs):
         '''
         Basic utility test including Tx, Rx, MsgRaw
@@ -121,12 +129,14 @@ class UavAppBase(AppBase, threading.Thread):
     def run(self, *args, **kwargs):
         if TARGET == 'selftest':
             self.selfTest(*args, **kwargs)
+        elif TARGET == 'throughput':
+            self.staticThroughputTest(*args, **kwargs)
         elif TARGET == 'stream':
             self.streamingTest(*args, **kwargs);
         print(f'{self.name} joined')
 class GcsAppBase(AppBase, threading.Thread):
     '''
-    GcsAppBase(context=context)
+    GcsAppBase(name=name)
     '''
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -188,6 +198,7 @@ class GcsAppBase(AppBase, threading.Thread):
     def run(self, *args, **kwargs):
         if TARGET == 'selftest':
             self.selfTest(*args, **kwargs)
+        elif TARGET == 'throughput':
+            self.staticThroughputTest(*args, **kwargs)
         elif TARGET == 'stream':
             self.streamingTest(*args, **kwargs);
-        print(f'{self.name} joined')

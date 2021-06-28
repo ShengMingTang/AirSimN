@@ -12,7 +12,7 @@ class UavApp(UavAppBase):
         # any self.attribute that you need
     # def run(self, *args, **kwargs):
         # return super().run(*args, **kwargs)
-        # implement your task
+        # or implement your task
         
         
 class GcsApp(GcsAppBase):
@@ -21,4 +21,4 @@ class GcsApp(GcsAppBase):
         # any self.attribute that you need
     # def run(self, *args, **kwargs):
         # return super().run(*args, **kwargs)
-        # implement your task
+        # or implement your task

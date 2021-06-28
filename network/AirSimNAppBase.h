@@ -44,7 +44,7 @@ protected:
     virtual void connectFailCallback(Ptr<Socket> socket);
     virtual void closeNormCallback(Ptr<Socket> socket);
     virtual void closeErrorCallback(Ptr<Socket> socket);
-    void sendName(Ptr<Socket> socket);
+    void sendAuth(Ptr<Socket> socket);
 
     // flow related
     void triggerFlow(Ptr<Socket> socket, uint32_t txSpace);
