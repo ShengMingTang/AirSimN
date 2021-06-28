@@ -43,7 +43,7 @@
 	"p2pDelay": 1e-3,
 	"useWifi": 0,
 	
-	"isMainLogEnabled": 0,
+	"isMainLogEnabled": 1,
 	"isGcsLogEnabled": 1,
 	"isUavLogEnabled": 1,
 	"isCongLogEnabled": 0,

@@ -1,4 +1,3 @@
-from appBase import *
 import setup_path
 import airsim
 from appBase import *
@@ -11,28 +10,15 @@ class UavApp(UavAppBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # any self.attribute that you need
-        
-    def customfn(self, *args, **kwargs):
-        # as your new target function
-        pass
-
     # def run(self, *args, **kwargs):
-    #     self.beforeRun()
-    #     self.customfn(*args, **kwargs)
-    #     self.afterRun()
-    #     print(f'{self.name} joined')
+        # return super().run(*args, **kwargs)
+        # implement your task
+        
         
 class GcsApp(GcsAppBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # any self.attribute that you need
-        
-    def customfn(self, *args, **kwargs):
-        # as your new target function
-        pass
-
     # def run(self, *args, **kwargs):
-    #     self.beforeRun()
-    #     self.customfn(*args, **kwargs)
-    #     self.afterRun()
-    #     print(f'{self.name} joined')
+        # return super().run(*args, **kwargs)
+        # implement your task

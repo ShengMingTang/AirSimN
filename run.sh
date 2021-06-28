@@ -17,13 +17,13 @@ cp $1 $HOME/Documents/AirSim/settings.json
 unreal_pid=$!
 echo $unreal_pid
 
-
+sleep 2
 cd $NS3
 ./waf --run scratch/network/network > "$PROJECT_DIR/log/network.log" &
 ns_pid=$!
 cd -
 
-sleep 3
+sleep 1
 cd application
 python3 main.py > "$PROJECT_DIR/log/application.log"
 app_pid=$!
