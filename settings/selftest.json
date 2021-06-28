@@ -47,6 +47,6 @@
 	"isGcsLogEnabled": 1,
 	"isUavLogEnabled": 1,
 	"isCongLogEnabled": 0,
-	"isSyncLogEnabled": 1,
-	"endTime": 5.0
+	"isSyncLogEnabled": 0,
+	"endTime": 10.0
 }

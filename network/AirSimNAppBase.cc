@@ -45,7 +45,7 @@ void AirSimNAppBase::acceptCallback(Ptr<Socket> socket, const Address& from)
 /* Trigger next or continue the current one */
 void AirSimNAppBase::sendCallback(Ptr<Socket> socket, uint32_t txSpace)
 {
-    triggerFlow(socket);
+    triggerFlow(socket, txSpace);
 }
 /*
 Auth or forward to application code
@@ -71,6 +71,7 @@ void AirSimNAppBase::recvCallback(Ptr<Socket> socket)
 
         m_addressKnown.insert(from);
         NS_LOG_INFO("[NS Time:" << Simulator::Now().GetSeconds() << " ], [" << m_name << " auth] from \"" << name << "\"");
+        flowTransfer(name);
     }
     else{ // don't read, we have known who it is, forward to py application 
         std::stringstream ss;
@@ -111,12 +112,12 @@ void AirSimNAppBase::closeErrorCallback(Ptr<Socket> socket)
 void AirSimNAppBase::sendName(Ptr<Socket> socket)
 {
     std::string s(m_name);
-    Ptr<Packet> packet = Create<Packet>((const uint8_t*)(s.c_str()), s.size()+1);
+    Ptr<Packet> packet = Create<Packet>((const uint8_t*)(s.c_str()), s.size());
     if(socket->Send(packet) < 0){
         NS_FATAL_ERROR(m_name << " sends its name Error");
     }
     else{
-        NS_LOG_INFO(m_name << " sends its name to " << m_socket2Name[socket]);
+        // NS_LOG_INFO(m_name << " sends its name to " << m_socket2Name[socket]);
     }
 }
 
@@ -124,33 +125,24 @@ void AirSimNAppBase::sendName(Ptr<Socket> socket)
 Either keep transmitting the current flow or auto trigger the next one
 <src(this)> <dst> "SEND" <size>
 */
-void AirSimNAppBase::triggerFlow(Ptr<Socket> socket)
+void AirSimNAppBase::triggerFlow(Ptr<Socket> socket, uint32_t txSpace)
 {
     // clear completed flows if any
     while(!m_flows2Dst[socket].empty() && m_flows[m_flows2Dst[socket].front()].left <= 0){
-        NS_LOG_INFO("Trigger flow pop");
         m_flows2Dst[socket].pop();
         m_flows.erase(m_flows2Dst[socket].front());
     }
     if(!m_flows2Dst[socket].empty()){
-        NS_LOG_INFO("Trigger flow trigger");
         int fid = m_flows2Dst[socket].front();
-        NS_LOG_INFO("Trigger flow trigger");
-        for(auto it:m_flows){
-            // NS_LOG_INFO("Flow " << it.first << " " << it.second.id << " " << it.second.left << " " << it.second.dst);
-            NS_LOG_INFO(m_name << " Flow " << it.first);
-        }
-        int size = std::min(socket->GetTxAvailable(), m_flows[fid].left);
-        NS_LOG_INFO("Trigger flow trigger " << m_flows[fid].left);
+        int size = std::min(txSpace, m_flows[fid].left);
+        NS_LOG_INFO("size for" << m_name << " " << size << ", " << txSpace << " " << m_flows[fid].left);
         Ptr<Packet> packet = Create<Packet>(size);
-        NS_LOG_INFO("Trigger flow trigger");
         
         int res = socket->Send(packet);
         if(res >= 0){
             m_flows[fid].left -= size;
         }
 
-        NS_LOG_INFO("Trigger flow trigger report");
         // report to py app
         std::stringstream ss;
         std::string s;
@@ -158,14 +150,22 @@ void AirSimNAppBase::triggerFlow(Ptr<Socket> socket)
         s = ss.str();
         zmq::message_t message(s.size());
 
-        NS_LOG_INFO("Trigger flow memcpy");
         memcpy((uint8_t*)(message.data()), s.data(), s.size());
         m_zmqSocketSend.send(message, zmq::send_flags::dontwait);
-        NS_LOG_INFO("[ NS Time: " << Simulator::Now().GetSeconds() << "], [" << m_name  << " send] to " << m_socket2Name[socket] << ", " << packet->GetSize() << " bytes");
+        NS_LOG_INFO("[ NS Time: " << Simulator::Now().GetSeconds() << "], [" << m_name  << " send] to " << m_socket2Name[socket] << ", " << size << " bytes");
     }
-    NS_LOG_INFO("Trigger flow return");
 }
-
+void AirSimNAppBase::flowTransfer(std::string dst)
+{
+    Ptr<Socket> socket = m_name2Socket[dst];
+    NS_LOG_INFO("[" << m_name << "], Flow transfer with dst=" << dst);
+    while(!m_pendingFlow[dst].empty()){
+        int fid = m_pendingFlow[dst].front();
+        m_pendingFlow[dst].pop();
+        m_flows2Dst[socket].push(fid);
+    }
+    triggerFlow(socket, socket->GetTxAvailable());
+}
 /*
 <flowid> "SEND" <size> <dst>
 */
@@ -182,32 +182,41 @@ void AirSimNAppBase::processReq(void)
     while(res.has_value() && res.value() != -1){ // not EAGAIN
         int fid;
         std::stringstream ss(message.to_string());
-        std::string op, args;
+        std::string op;
         
-        NS_LOG_INFO("[" << m_name << "] " << ss.str());
         ss >> fid >> op;
-        
+        NS_LOG_INFO("[" << m_name << "], req:\"" << message.to_string() << "\"");
         if(op == FLOWOP_SEND){
             int size;
             std::string dst;
             Ptr<Socket> socket;
 
             ss >> size >> dst;
-            socket = m_name2Socket[dst];
-
             flow::Flow f(fid, size, dst);
-            m_flows[fid] = f;
-            if(m_flows2Dst.find(socket) != m_flows2Dst.end()){
-                m_flows2Dst[socket] = std::queue<int>();
+
+            // dst is known, safe
+            if(m_name2Socket.find(dst) != m_name2Socket.end()){
+                socket = m_name2Socket[dst];
+                m_flows[fid] = f;
+                if(m_flows2Dst.find(socket) == m_flows2Dst.end()){
+                    m_flows2Dst[socket] = std::queue<int>();
+                }
+                m_flows2Dst[socket].push(fid);
+                triggerFlow(socket, socket->GetTxAvailable());
             }
-            m_flows2Dst[socket].push(fid);
-            NS_LOG_INFO("Trigger flow");
-            triggerFlow(socket);
+            else{ // keep queuing to pending flow
+                if(m_pendingFlow.find(dst) == m_pendingFlow.end()){
+                    m_pendingFlow[dst] = queue<int>();
+                }
+                m_pendingFlow[dst].push(fid);
+                NS_LOG_INFO("[" << m_name << "], queue flow " << fid);
+            }
         }
         else{
-            NS_FATAL_ERROR("op:" << op << " not handled");
+            NS_FATAL_ERROR("op:\"" << op << "\" not handled");
         }
         message.rebuild();
+        res = m_zmqSocketRecv.recv(message, zmq::recv_flags::dontwait);
     }
 }
 void AirSimNAppBase::StopApplication(void)

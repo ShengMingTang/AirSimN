@@ -33,13 +33,6 @@ class Flow():
         self.lock.acquire()
     def __exit__(self, exc_type, exc_value, tb):
         self.lock.release()
-class FlowOp(Enum):
-    '''
-    Protocol: Flow.id, Flowop, args...
-    '''
-    SEND = 'SEND'
-    RECV = 'RECV'
-    STOP = 'STOP'
 class EndPoint():
     def __init__(self, zmqSendSocket, *args, **kwargs):
         self.zmqSendSocket = zmqSendSocket
@@ -51,14 +44,14 @@ class Router(threading.Thread):
         self.endPoints = {}
         self.flowIDCount = 0
         self.context = context
-        self.sub = context.socket(zmq.SUB)
+        self.sub = context.socket(zmq.PULL)
         self.sub.bind(f'tcp://*:{NS2ROUTER_PORT}')
         self.sub.setsockopt(zmq.RCVTIMEO, IOTIMEO)
         
         # [src][dst] -> deque
         # left (oldest) ... right (latest)
-        self.senderSrc2Dst = {}
-        self.recverSrc2Dst = {}
+        self.senderSrc2Dst = {} # flow record on sender side
+        self.recverSrc2Dst = {} # flow record on recver side
         
         self.mutex = threading.Lock()
     def startFlow(self, f):
@@ -74,8 +67,8 @@ class Router(threading.Thread):
             with self.mutex:
                 f.id = self.flowIDCount
                 self.flowIDCount += 1
-                print(f'Router sends "{f.id} {FLOWOP_SEND} {f.size} {f.dst}"')
                 self.endPoints[f.src].zmqSendSocket.send_string(f'{f.id} {FLOWOP_SEND} {f.size} {f.dst}', 0)
+                # self.endPoints[f.src].zmqSendSocket.send(b'%d %b %d %b' % (f.id, bytes(FLOWOP_SEND, encoding='utf8'), f.size, bytes(f.dst, encoding='utf8')), 0)
                 self.senderSrc2Dst[f.src][f.dst].append(f)
                 self.recverSrc2Dst[f.src][f.dst].append(f)
         return f
@@ -107,13 +100,15 @@ class Router(threading.Thread):
         # Keep listening to reponse from NS3 then update those flows
         while Ctrl.ShouldContinue():
             try:
-                msg = self.sub.recv_string(zmq.NOBLOCK)
+                msg = self.sub.recv_string()
                 src, dst, op, *args = msg.split()
+                print(msg)
                 if op == FLOWOP_SEND:
                     # <src> <dst> "SEND" <size>
                     with self.mutex:
                         f = self.senderSrc2Dst[src][dst].popleft()
                         size = int(args[0])
+                        print(f'{src}->{dst} send {size}')
                         with f:
                             f.bytesSent += size
                             if f.bytesSent == f.size:
@@ -125,6 +120,7 @@ class Router(threading.Thread):
                 elif op == FLOWOP_RECV:
                     with self.mutex:
                         size = int(args[0])
+                        print(f'{src}->{dst} recv {size}')
                         f = self.recverSrc2Dst[src][dst].popleft()
                         with f:
                             f.bytesRecv += size
@@ -135,10 +131,9 @@ class Router(threading.Thread):
                             else:
                                 raise RuntimeError(f'{f} calculation Error on recver side')
                 else:
-                    raise RuntimeError('OP {op} not handled')
+                    raise RuntimeError('In Router, OP {op} not handled')
             except zmq.ZMQError:
                 pass
-                
 
 context = zmq.Context(NUM_IO_THREADS)
 mainRouter = Router(context)

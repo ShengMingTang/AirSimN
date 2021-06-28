@@ -17,7 +17,7 @@ AIRSIM2NS_CTRL_PORT = 8001
 # UAV,GCS -> (Pub-Sub) -> Router
 NS2ROUTER_PORT = 9000
 
-VERBOSE=True
+VERBOSE=False
 
 class Ctrl(threading.Thread):
     '''
@@ -128,7 +128,9 @@ class Ctrl(threading.Thread):
             if len(Ctrl.freezeSet) == 0:
                 Ctrl.freezeCond.notify()
         Ctrl.freezeCond.release()
-    
+    @staticmethod
+    def Frozen():
+        return CtrlFrozen()
     def waitForSyncStart(self):
         '''
         to synchronize start
@@ -285,4 +287,11 @@ class Ctrl(threading.Thread):
             Ctrl.isRunning = False
         self.zmqSendSocket.send_string(f'bye {Ctrl.GetEndTime()}')
         self.notifyWait()
-        
+
+class CtrlFrozen():
+    def __init__(self):
+        pass
+    def __enter__(self):
+        Ctrl.Freeze(True)
+    def __exit__(self, exc_type, exc_value, tb):
+        Ctrl.Freeze(False)

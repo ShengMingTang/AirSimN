@@ -389,8 +389,8 @@ int main(int argc, char *argv[])
   FlowMonitor::FlowStatsContainer uavStats = uavMonitor->GetFlowStats ();
   for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = uavStats.begin (); i != uavStats.end (); ++i){
     Ipv4FlowClassifier::FiveTuple t = uavClassifier->FindFlow (i->first);
-    std::cout << "source=" << t.sourceAddress << ", dest=" << t.destinationAddress << " TxBytes= " << i->second.txBytes << ", throughput= "<< i->second.txBytes * 8.0 / (i->second.timeLastTxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds()+0.001) / 1000 / 1000  << " Mbps"  << endl;
-    std::cout << "packet lost=" << i->second.lostPackets << endl;
+    NS_LOG_INFO("source=" << t.sourceAddress << ", dest=" << t.destinationAddress << " TxBytes= " << i->second.txBytes << ", throughput= "<< i->second.txBytes * 8.0 / (i->second.timeLastTxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds()+0.001) / 1000 / 1000  << " Mbps");
+    NS_LOG_INFO("packet lost=" << i->second.lostPackets);
   }
 
   NS_LOG_INFO("GCS monitor:");
@@ -399,8 +399,8 @@ int main(int argc, char *argv[])
   FlowMonitor::FlowStatsContainer gcsStats = gcsMonitor->GetFlowStats ();
   for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = gcsStats.begin (); i != gcsStats.end (); ++i){
     Ipv4FlowClassifier::FiveTuple t = gcsClassifier->FindFlow (i->first);
-    std::cout << "source=" << t.sourceAddress << ", dest=" << t.destinationAddress << " TxBytes= " << i->second.txBytes << ", throughput= "<< i->second.txBytes * 8.0 / (i->second.timeLastTxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds()+0.001) / 1000 / 1000  << " Mbps"  << endl;
-    std::cout << "packet lost=" << i->second.lostPackets << endl;
+    NS_LOG_INFO("source=" << t.sourceAddress << ", dest=" << t.destinationAddress << " TxBytes= " << i->second.txBytes << ", throughput= "<< i->second.txBytes * 8.0 / (i->second.timeLastTxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds()+0.001) / 1000 / 1000  << " Mbps");
+    NS_LOG_INFO("packet lost=" << i->second.lostPackets);
   }
 
   // ==========================================================================

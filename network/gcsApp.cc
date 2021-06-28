@@ -59,7 +59,7 @@ void GcsApp::Setup(zmq::context_t &context,
     m_socket = socket;
     m_address = address;
 
-    m_zmqSocketSend = zmq::socket_t(context, ZMQ_PUB);
+    m_zmqSocketSend = zmq::socket_t(context, ZMQ_PUSH);
     m_zmqSocketSend.connect("tcp://localhost:" + to_string(NS2ROUTER_PORT));
     
     m_zmqSocketRecv = zmq::socket_t(context, ZMQ_PULL);

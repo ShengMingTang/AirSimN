@@ -61,7 +61,7 @@ void UavApp::Setup(zmq::context_t &context,
     m_address = address;
     m_peerAddress = peerAddress;
 
-    m_zmqSocketSend = zmq::socket_t(context, ZMQ_PUB);
+    m_zmqSocketSend = zmq::socket_t(context, ZMQ_PUSH);
     // this port is bind by sub side
     m_zmqSocketSend.connect("tcp://localhost:" + to_string(NS2ROUTER_PORT));
     m_zmqSocketRecv = zmq::socket_t(context, ZMQ_PULL);

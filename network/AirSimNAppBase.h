@@ -47,7 +47,8 @@ protected:
     void sendName(Ptr<Socket> socket);
 
     // flow related
-    void triggerFlow(Ptr<Socket> socket);
+    void triggerFlow(Ptr<Socket> socket, uint32_t txSpace);
+    void flowTransfer(std::string dst);
 
     // ns stuff
     bool m_running = false;
@@ -64,8 +65,12 @@ protected:
     
     // Flow related
     std::set<Address> m_addressKnown; // in set, don't read packet, else read and record to m_connectedSockets
-    std::unordered_map<int, flow::Flow> m_flows; // flow.id to flows
-    std::map<Ptr<Socket>, std::queue<int> > m_flows2Dst; // socket to flow
+    // flow.id -> flows
+    std::unordered_map<int, flow::Flow> m_flows;
+    // known socket to queue of pending flows
+    std::map<Ptr<Socket>, std::queue<int> > m_flows2Dst;
+    // dst -> queue of pending flows (corresponding socket is not known)
+    std::map< std::string, std::queue<int> > m_pendingFlow; // dst -> flow
 private:
     virtual void StartApplication(void) = 0;
     virtual void StopApplication(void);

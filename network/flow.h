@@ -2,9 +2,9 @@
 #define INCLUDE_FLOW_H
 #include <string>
 
-#define FLOWOP_SEND ("SEND")
-#define FLOWOP_RECV ("RECV")
-#define FLOWOP_STOP ("STOP")
+#define FLOWOP_SEND "SEND"
+#define FLOWOP_RECV "RECV"
+#define FLOWOP_STOP "STOP"
 
 namespace flow{
 
