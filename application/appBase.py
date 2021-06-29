@@ -17,7 +17,9 @@ from ctrl import *
 from msg import *
 from router import Flow, mainRouter
 
-TARGET = 'selftest' # 'selftest' | 'stream' | 'static
+TARGET = 'stream' # 'selftest' | 'stream' | 'throughput'
+DIST = 0
+PERIOD = 0.01
 
 class AppBase(metaclass=abc.ABCMeta):
     '''
@@ -33,11 +35,17 @@ class AppBase(metaclass=abc.ABCMeta):
         To start a flow
         return len(obj)
         '''
-        f = Flow(self.name, toName, obj)
-        f.start()
-        return len(obj)
+        if isinstance(obj, (list, tuple)):
+            for msg in obj:
+                f = Flow(self.name, toName, msg)
+                f.start()
+            return [len(msg) for msg in obj]
+        else:
+            f = Flow(self.name, toName, obj)
+            f.start()
+            return len(obj)
         
-    def Rx(self, block=False):
+    def Rx(self, block=False, timeout=None):
         '''
         @param block: bool, True than block until a msg has arrived (usually False)
         
@@ -45,7 +53,7 @@ class AppBase(metaclass=abc.ABCMeta):
         else
         return (src, msg)
         '''      
-        return mainRouter.recv(self.name, block)
+        return mainRouter.recv(self.name, block=block, timeout=timeout)
 
 class UavAppBase(AppBase, threading.Thread):
     '''
@@ -72,17 +80,21 @@ class UavAppBase(AppBase, threading.Thread):
             print(f'{self.name} at frozen, got {Ctrl.GetSimTime()}')
         Ctrl.Wait(0.5234, lambda: print(f'{self.name} at 2.4734, got {Ctrl.GetSimTime()}'))
         msg = MsgRaw(b'I\'m %b' % (bytes(self.name, encoding='utf-8')))
+        print(f'{self.name} trans msg at time {Ctrl.GetSimTime()}')
         self.Tx(msg)
-        print(f'{self.name} trans msg')
 
+        # compound send test
+        msgs = [MsgRaw(b'I\'m %b-%d' % (bytes(self.name, encoding='utf-8'), i)) for i in range(5)]
+        print(f'{self.name} trans multiple msg at time {Ctrl.GetSimTime()}')
+        self.Tx(msgs)
+        
         reply = None
         while Ctrl.ShouldContinue():
             reply = self.Rx()
             if reply is not None:
-                print(f'{self.name} recv: {reply}')
-            else:
-                Ctrl.Wait(0.5)
-    def staticThroughputTest(self, dist=0, period=0.01, **kwargs):
+                print(f'{self.name} recv: {reply[1].data} at time {Ctrl.GetSimTime()}')
+            Ctrl.Wait(0.01)
+    def staticThroughputTest(self, dist, period, **kwargs):
         '''
         Run throughput test at application level
         dist argument must be specified
@@ -101,9 +113,8 @@ class UavAppBase(AppBase, threading.Thread):
         t0 = Ctrl.GetSimTime()
         while Ctrl.ShouldContinue():
             Ctrl.Wait(period)
-            res = self.Tx(msg)
-            if res > 0:
-                total += len(msg.data)
+            self.Tx(msg)
+            total += len(msg.data)
         print(f'{dist} {self.name} trans {total}, throughput = {total*8/1000/1000/(Ctrl.GetEndTime()-t0)}')
     def streamingTest(self, **kwargs):
         '''
@@ -114,23 +125,19 @@ class UavAppBase(AppBase, threading.Thread):
         client.enableApiControl(True, vehicle_name=self.name)
         client.armDisarm(True, vehicle_name=self.name)
         
-        delay = 0.2
+        delay = 1.0
         Ctrl.Wait(delay)
-        # client.takeoffAsync(vehicle_name=self.name).join()
-        # client.moveByVelocityBodyFrameAsync(5, 0, 0, 20, vehicle_name=self.name)
         while Ctrl.ShouldContinue():
             Ctrl.Wait(0.1)
-            rawImage = client.simGetImage("0", airsim.ImageType.Scene, vehicle_name=self.name)
-            png = cv2.imdecode(airsim.string_to_uint8_array(rawImage), cv2.IMREAD_UNCHANGED)
-            msg = MsgImg(png, Ctrl.GetSimTime())
-            res = self.Tx(msg)
-            if res < 0:
-                print(f'{self.name} streaming res = {res}')
+            with Ctrl.Frozen():
+                rawImage = client.simGetImage("0", airsim.ImageType.Scene, vehicle_name=self.name)
+                msg = MsgImg(rawImage, Ctrl.GetSimTime())
+            self.Tx(msg)
     def run(self, *args, **kwargs):
         if TARGET == 'selftest':
             self.selfTest(*args, **kwargs)
         elif TARGET == 'throughput':
-            self.staticThroughputTest(*args, **kwargs)
+            self.staticThroughputTest(dist=DIST, period=PERIOD, *args, **kwargs)
         elif TARGET == 'stream':
             self.streamingTest(*args, **kwargs);
         print(f'{self.name} joined')
@@ -148,17 +155,23 @@ class GcsAppBase(AppBase, threading.Thread):
         Ctrl.Wait(3.0)
         print(f'{self.name} is testing')
         msg = MsgRaw(b'I\'m GCS')
+        print(f'{self.name} trans msg to A at time {Ctrl.GetSimTime()}')
         self.Tx(msg, 'A')
-        print(f'GCS trans to A')
+        print(f'{self.name} trans msg to B at time {Ctrl.GetSimTime()}')
         self.Tx(msg, 'B')
-        print(f'GCS trans to B')
 
+        # compound send test
+        msgs = [MsgRaw(b'I\'m %b-%d' % (bytes(self.name, encoding='utf-8'), i)) for i in range(5)]
+        print(f'{self.name} trans multiple msg to A at time {Ctrl.GetSimTime()}')
+        self.Tx(msgs, 'A')
+        print(f'{self.name} trans multiple msg to A at time {Ctrl.GetSimTime()}')
+        self.Tx(msgs, 'B')
+        
         while Ctrl.ShouldContinue():
             reply = self.Rx()
             if reply is not None:
-                print(f'{self.name} recv: {reply}')
-            else:
-                Ctrl.Wait(0.5)
+                print(f'{self.name} recv: {reply[1].data}  at time {Ctrl.GetSimTime()}')
+            Ctrl.Wait(0.01)
     def staticThroughputTest(self, *args, **kwargs):
         '''
         Run throughput test at application level
@@ -173,26 +186,27 @@ class GcsAppBase(AppBase, threading.Thread):
             if msg is not None:
                 addr, msg = msg
                 total += len(msg.data)
-            print(f'GCS recv {total}, throughput = {total*8/1000/1000/(Ctrl.GetEndTime()-(t0))}')
+        print(f'GCS recv {total}, throughput = {total*8/1000/1000/(Ctrl.GetEndTime()-(t0))}')
     def streamingTest(self, **kwargs):
         '''
         Test Msg Level streaming back to GCS
         '''
-        delay = 0.1
+        delay = 1.0
         Ctrl.Wait(delay)
         fig = None
         while Ctrl.ShouldContinue():
             reply = self.Rx()
             if reply is not None:
                 name, reply = reply
-                
+                png = cv2.imdecode(airsim.string_to_uint8_array(reply.png), cv2.IMREAD_UNCHANGED)
+                png = cv2.cvtColor(png, cv2.COLOR_BGRA2BGR)
                 if fig is None:
-                    fig = plt.imshow(reply.png)
+                    fig = plt.imshow(png)
+                    Ctrl.SetEndTime(Ctrl.GetSimTime() + 2.0)
                 else:
-                    fig.set_data(reply.png)
+                    fig.set_data(png)
             else:
-                pass
-            plt.pause(0.1)
+                plt.pause(0.1)
             plt.draw()
         plt.clf()
     def run(self, *args, **kwargs):
@@ -202,3 +216,4 @@ class GcsAppBase(AppBase, threading.Thread):
             self.staticThroughputTest(*args, **kwargs)
         elif TARGET == 'stream':
             self.streamingTest(*args, **kwargs);
+        print(f'{self.name} joined')

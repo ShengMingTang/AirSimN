@@ -34,7 +34,7 @@ public:
     // static TypeId GetTypeId(void) = 0;
 
     // Setup() is not defined here
-    void processReq(void);
+    virtual void processReq(void);
 protected:
     // socket callbacks
     virtual void acceptCallback(Ptr<Socket> socket, const Address& from);
@@ -44,11 +44,11 @@ protected:
     virtual void connectFailCallback(Ptr<Socket> socket);
     virtual void closeNormCallback(Ptr<Socket> socket);
     virtual void closeErrorCallback(Ptr<Socket> socket);
-    void sendAuth(Ptr<Socket> socket);
+    virtual void sendAuth(Ptr<Socket> socket);
 
     // flow related
-    void triggerFlow(Ptr<Socket> socket, uint32_t txSpace);
-    void flowTransfer(std::string dst);
+    virtual void triggerFlow(Ptr<Socket> socket, uint32_t txSpace);
+    virtual void flowTransfer(std::string dst);
 
     // ns stuff
     bool m_running = false;

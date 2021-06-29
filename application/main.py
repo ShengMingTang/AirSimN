@@ -44,6 +44,7 @@ if __name__ == '__main__':
     gcsThread.run()
 
     # End of simulation
+    mainRouter.join()
     ctrlThread.join()
     for td in uavsThread:
         td.join()

@@ -29,7 +29,7 @@ TypeId CongApp::GetTypeId(void)
 {
     static TypeId tid = TypeId("CongApp")
         .SetParent<Application>()
-        .SetGroupName("ns3_AirSim")
+        .SetGroupName("AirSimN")
         .AddConstructor<CongApp>()
     ;
     return tid;
@@ -46,79 +46,61 @@ void CongApp::Setup(Ptr<Socket> socket, Address myAddress, Address peerAddress,
     m_congRate = congRate;
     m_name = name;
 }
-
+void CongApp::connectSuccCallback(Ptr<Socket> socket)
+{
+    NS_LOG_INFO("My name is " << m_name);
+    sendAuth(socket);
+    scheduleTx();
+}
 /* Bind ns sockets and logging*/
 void CongApp::StartApplication(void)
 {
-    m_running = true;
-
     // ns socket routines
     m_socket->Bind();
+    m_socket->SetConnectCallback(MakeCallback(&CongApp::connectSuccCallback, this), MakeCallback(&CongApp::connectFailCallback, this));
+    m_socket->SetCloseCallbacks(MakeCallback(&CongApp::closeNormCallback, this), MakeCallback(&CongApp::closeErrorCallback, this));
     if(m_socket->Connect(m_peerAddress) != 0){
-        NS_FATAL_ERROR("Cong connect error");
-    };
-    
-    m_socket->SetRecvCallback(
-        MakeCallback(&CongApp::recvCallback, this)
-    );
-
-    // send my name
-    std::string s = "name " + m_name + " ";
-    Ptr<Packet> packet = Create<Packet>((const uint8_t*)(s.c_str()), s.size()+1);
-    if(m_socket->Send(packet) == -1){
-        NS_FATAL_ERROR(m_name << " sends my name Error");
+        NS_FATAL_ERROR("[" << m_name << "], connect error");
     }
 
     m_running = true;
-    NS_LOG_INFO("[" << m_name << " starts]");
-
-    scheduleTx();
-    NS_LOG_INFO("[Cong " << m_name << " starts]");
+    NS_LOG_INFO("[" << m_name << "], starts");
 }
-void CongApp::StopApplication(void)
+void CongApp::StopApplication (void)
 {
-    m_running = false;
-
     if(m_event.IsRunning()){
         Simulator::Cancel(m_event);
     }
+    
+    // from parent class
+    m_running = false;
+
     if(m_socket){
         m_socket->Close();
     }
-
-    NS_LOG_INFO("[Cong " << m_name << " stopped]");
-}
-void CongApp::Tx(Ptr<Socket> socket, Ptr<Packet> packet)
-{
-    float now = Simulator::Now().GetSeconds();
-    int res = socket->Send(packet);
-
-    if(res < 0){
-        NS_LOG_WARN("time: " << now << ", [" << m_name << " send] ERROR " << res);
+    for(auto it:m_name2Socket){
+        if(it.second){
+            it.second->Close();
+        }
     }
-    else{
-        NS_LOG_INFO("time: " << now << ", [" << m_name << " send]");
-    }
+
+    m_zmqSocketSend.close();
+    m_zmqSocketRecv.close();
+
+    NS_LOG_INFO("[" << m_name << " stopped]");
 }
 void CongApp::scheduleTx(void)
 {
-    // r [0, 1]
-    float r = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+    float r; // in [-0.5, 0.5] * 1/m_congRate
+    int size = std::min(m_socket->GetTxAvailable(), (uint32_t)CONG_PACKET_SIZE);
+    Ptr<Packet> packet = Create<Packet>(size);
+    
+    m_socket->Send(packet);
+    r = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+    r = (r/2) * (1/m_congRate);
     r = rand() % 2 ? r : -r;
-
-    Ptr<Packet> packet = Create<Packet>(CONG_PACKET_SIZE);
+    NS_LOG_INFO("[NS Time: " << Simulator::Now().GetSeconds() << "], [" << m_name  << "], " << size << " bytes");
 
     Time tNext(Seconds(max((float)1e-3, 1/m_congRate + r)));
-    m_event = Simulator::Schedule(tNext, &CongApp::Tx, this, m_socket, packet);
-}
-/* <from-address> <payload> then forward to application code */
-void CongApp::recvCallback(Ptr<Socket> socket)
-{
-    float now = Simulator::Now().GetSeconds();
-    Ptr<Packet> packet;
-    Address from;
-
-    packet = socket->RecvFrom(from);
-
-    NS_LOG_INFO("time: " << now << ", [" << m_name << " recv]");
+    m_event = Simulator::Schedule(tNext, &CongApp::scheduleTx, this);
 }

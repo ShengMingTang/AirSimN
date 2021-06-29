@@ -103,8 +103,7 @@ AirSimSync::AirSimSync(zmq::context_t &context): event()
 }
 AirSimSync::~AirSimSync()
 {
-    zmqRecvSocket.close();
-    zmqSendSocket.close();
+    // TODO
 }
 
 void AirSimSync::readNetConfigFromAirSim(NetConfig &config)
@@ -124,7 +123,7 @@ void AirSimSync::startAirSim()
     zmqSendSocket.send(ntf, zmq::send_flags::none);
     NS_LOG_INFO("NS3 kick start AirSim");
 }
-void AirSimSync::takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsApp)
+void AirSimSync::takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsApp, std::vector< Ptr<CongApp> > &congsApp)
 {
     float now = Simulator::Now().GetSeconds();
     zmq::message_t message;
@@ -151,6 +150,9 @@ void AirSimSync::takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsA
         for(auto &it:uavsApp){
             it->SetStopTime(Seconds(endTime));
         }
+        for(auto &it:congsApp){
+            it->SetStopTime(Seconds(endTime));
+        }
         if(n == std::string::npos){
             NS_LOG_INFO("Termination triggered by timeout");
         }
@@ -160,24 +162,28 @@ void AirSimSync::takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsA
         if(res.has_value() && res.value() < 0){
             NS_LOG_INFO("Termination triggered by res value " << res.value());
         }
+
+        zmqSendSocket.close();
+        zmqRecvSocket.close();
         Simulator::Stop(Seconds(endTime));
+        return;
     }
     else{ // AirSim must transmit a number
-        step = atof(s.c_str());
+        // ns' turn at time t, AirSim at time t + 1
+        // packet send
+        step = std::stof(s);
+        mobilityUpdateDirect();
+        gcsApp->processReq();
+        for(int i = 0; i < uavsApp.size(); i++){
+            uavsApp[i]->processReq();
+        }
+
         NS_LOG_INFO("[NS TIME: " << now << "], Next sim step " << step);
+        // will fire at time t + step
+        Time tNext(Seconds(step));
+        event = Simulator::Schedule(tNext, &AirSimSync::takeTurn, this, gcsApp, uavsApp, congsApp);
     }
     
-    // ns' turn at time t, AirSim at time t + 1
-    // packet send
-    this->mobilityUpdateDirect();
-    gcsApp->processReq();
-    for(int i = 0; i < uavsApp.size(); i++){
-        uavsApp[i]->processReq();
-    }
-
-    // will fire at time t + step
-    Time tNext(Seconds(step));
-    event = Simulator::Schedule(tNext, &AirSimSync::takeTurn, this, gcsApp, uavsApp);
 }
 void AirSimSync::mobilityUpdateDirect()
 {

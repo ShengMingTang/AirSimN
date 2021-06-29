@@ -8,13 +8,16 @@
 #include "ns3/point-to-point-module.h"
 #include "ns3/applications-module.h"
 #include "ns3/stats-module.h"
+// custom includes
+#include "AirSimNAppBase.h"
 
+// Congest at a rate of CONG_PACKET_SIZE * (1/(congRate+small variance))
 #define CONG_PACKET_SIZE (1024*5)
 
 using namespace std;
 using namespace ns3;
 
-class CongApp: public Application
+class CongApp: public AirSimNAppBase
 {
 public:
     CongApp();
@@ -29,23 +32,15 @@ public:
         float congRate, std::string name
     );
 
-    void scheduleTx(void);
 private:
+    virtual void connectSuccCallback(Ptr<Socket> socket);
     virtual void StartApplication (void);
     virtual void StopApplication (void);
+    void scheduleTx(void);
 
-    void Tx(Ptr<Socket> socket, Ptr<Packet> packet);
-
-    void recvCallback(Ptr<Socket> socket);
-
-    bool m_running;
-    std::string m_name;
     float m_congRate;
-    // ns stuff
-    Ptr<Socket>     m_socket;
-    Address         m_address;
-    Address         m_peerAddress;
     EventId         m_event;
+    Address         m_peerAddress;
 };
 
 #endif

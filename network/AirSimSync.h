@@ -15,6 +15,7 @@
 // custom includes
 #include "gcsApp.h"
 #include "uavApp.h"
+#include "congApp.h"
 
 /* ZMQ ports */
 // AIRSIM -> NS (For each application)
@@ -33,6 +34,8 @@
 // Starting port sequence used by each application to listen to conn
 #define LISTEN_PORT_START (4000)
 #define CONG_PORT_START (CONN_PORT_START)
+
+#define CONG_APP_TOKEN "__anony"
 
 // Start time
 #define GCS_APP_START_TIME (0.1)
@@ -83,7 +86,7 @@ public:
         this->m_uavsMobility = uavsMobility;
     }
     void startAirSim();
-    void takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsApp);
+    void takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsApp, std::vector< Ptr<CongApp> > &congsApp);
 private:
     zmq::socket_t zmqRecvSocket, zmqSendSocket;
     float updateGranularity;

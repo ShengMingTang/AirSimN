@@ -356,7 +356,7 @@ int main(int argc, char *argv[])
     Ptr<Socket> congTcpSocket = Socket::CreateSocket(congNodes.Get(i), TcpSocketFactory::GetTypeId());
     Address congMyAddress(InetSocketAddress(Ipv4Address::GetAny(), congPort));
     Ptr<CongApp> app = CreateObject<CongApp>();
-    std::string name("anoy");
+    std::string name(CONG_APP_TOKEN);
 
     name += to_string(i);    
     congNodes.Get(i)->AddApplication(app);
@@ -372,13 +372,14 @@ int main(int argc, char *argv[])
   // ==========================================================================
   // Monitor
   FlowMonitorHelper flowmon;
-  Ptr<FlowMonitor> uavMonitor = flowmon.Install(uavNodes.Get(0));
+  Ptr<FlowMonitor> uavMonitor = flowmon.Install(uavNodes);
   Ptr<FlowMonitor> gcsMonitor = flowmon.Install(gcsNode);
+  Ptr<FlowMonitor> congMonitor = flowmon.Install(congNodes);
 
   // ==========================================================================
   // Run
   sync.startAirSim();
-  Simulator::ScheduleNow(&AirSimSync::takeTurn, &sync, gcsApp, uavsApp);
+  Simulator::ScheduleNow(&AirSimSync::takeTurn, &sync, gcsApp, uavsApp, congsApp);
   Simulator::Run();
   
   // ==========================================================================
@@ -399,6 +400,16 @@ int main(int argc, char *argv[])
   FlowMonitor::FlowStatsContainer gcsStats = gcsMonitor->GetFlowStats ();
   for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = gcsStats.begin (); i != gcsStats.end (); ++i){
     Ipv4FlowClassifier::FiveTuple t = gcsClassifier->FindFlow (i->first);
+    NS_LOG_INFO("source=" << t.sourceAddress << ", dest=" << t.destinationAddress << " TxBytes= " << i->second.txBytes << ", throughput= "<< i->second.txBytes * 8.0 / (i->second.timeLastTxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds()+0.001) / 1000 / 1000  << " Mbps");
+    NS_LOG_INFO("packet lost=" << i->second.lostPackets);
+  }
+
+  NS_LOG_INFO("Cong monitor:");
+  congMonitor->CheckForLostPackets ();
+  Ptr<Ipv4FlowClassifier> congClassifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
+  FlowMonitor::FlowStatsContainer congStats = congMonitor->GetFlowStats ();
+  for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = congStats.begin (); i != congStats.end (); ++i){
+    Ipv4FlowClassifier::FiveTuple t = congClassifier->FindFlow (i->first);
     NS_LOG_INFO("source=" << t.sourceAddress << ", dest=" << t.destinationAddress << " TxBytes= " << i->second.txBytes << ", throughput= "<< i->second.txBytes * 8.0 / (i->second.timeLastTxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds()+0.001) / 1000 / 1000  << " Mbps");
     NS_LOG_INFO("packet lost=" << i->second.lostPackets);
   }

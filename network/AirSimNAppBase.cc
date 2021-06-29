@@ -73,6 +73,12 @@ void AirSimNAppBase::recvCallback(Ptr<Socket> socket)
         NS_LOG_INFO("[NS Time:" << Simulator::Now().GetSeconds() << " ], [" << m_name << " auth] from \"" << name << "\"");
         flowTransfer(name);
     }
+    else if(
+        m_address2Name.find(from) != m_address2Name.end() &&
+        m_address2Name[from].find(CONG_APP_TOKEN) != std::string::npos
+    ){ // traffic from congestion app
+        // NS_LOG_INFO("[" << m_name << "], recv traffic from " << m_address2Name[from] << ", size " << packet->GetSize());
+    }
     else{ // don't read, we have known who it is, forward to py application 
         std::stringstream ss;
         std::string s;
@@ -82,7 +88,7 @@ void AirSimNAppBase::recvCallback(Ptr<Socket> socket)
         zmq::message_t message(s.size());
         memcpy((uint8_t*)(message.data()), s.data(), s.size());
         m_zmqSocketSend.send(message, zmq::send_flags::dontwait);
-        NS_LOG_INFO("[ NS Time: " << Simulator::Now().GetSeconds() << "], [" << m_name  << " recv] from-" << m_address2Name[from] << ", " << packet->GetSize() << " bytes");
+        NS_LOG_INFO("[NS Time: " << Simulator::Now().GetSeconds() << "], [" << m_name  << " recv] from-\"" << m_address2Name[from] << "\", " << packet->GetSize() << " bytes");
     }
 }
 /* auto auth (for symmetry between GCS and UAV) */
@@ -116,8 +122,9 @@ void AirSimNAppBase::closeErrorCallback(Ptr<Socket> socket)
 /* send auth */
 void AirSimNAppBase::sendAuth(Ptr<Socket> socket)
 {
-    std::string s(m_name);
-    Ptr<Packet> packet = Create<Packet>((const uint8_t*)(s.c_str()), s.size());
+    Ptr<Packet> packet = Create<Packet>((const uint8_t*)(m_name.data()), m_name.size());
+
+    NS_LOG_INFO("My name is " << m_name);
     if(socket->Send(packet) < 0){
         NS_FATAL_ERROR(m_name << " sends its name Error");
     }
@@ -134,17 +141,17 @@ void AirSimNAppBase::triggerFlow(Ptr<Socket> socket, uint32_t txSpace)
 {
     // clear completed flows if any
     while(!m_flows2Dst[socket].empty() && m_flows[m_flows2Dst[socket].front()].left <= 0){
-        m_flows2Dst[socket].pop();
         m_flows.erase(m_flows2Dst[socket].front());
+        m_flows2Dst[socket].pop();
     }
     if(!m_flows2Dst[socket].empty()){
         int fid = m_flows2Dst[socket].front();
         int size = std::min(txSpace, m_flows[fid].left);
-        NS_LOG_INFO("size for" << m_name << " " << size << ", " << txSpace << " " << m_flows[fid].left);
         Ptr<Packet> packet = Create<Packet>(size);
         
         int res = socket->Send(packet);
         if(res >= 0){
+            NS_LOG_INFO(m_name << " trigger flow, size= " << size << ", got res= " << res);
             m_flows[fid].left -= size;
         }
 
@@ -157,7 +164,7 @@ void AirSimNAppBase::triggerFlow(Ptr<Socket> socket, uint32_t txSpace)
 
         memcpy((uint8_t*)(message.data()), s.data(), s.size());
         m_zmqSocketSend.send(message, zmq::send_flags::dontwait);
-        NS_LOG_INFO("[ NS Time: " << Simulator::Now().GetSeconds() << "], [" << m_name  << " send] to " << m_socket2Name[socket] << ", " << size << " bytes");
+        NS_LOG_INFO("[NS Time: " << Simulator::Now().GetSeconds() << "], [" << m_name  << " send] to " << m_socket2Name[socket] << ", " << size << " bytes");
     }
 }
 
