@@ -9,67 +9,16 @@ import heapq
 import json
 import math
 # Theses vars correspond to AirSimSync.h
-NS2AIRSIM_PORT_START = 5000
-AIRSIM2NS_PORT_START = 6000
-NS2AIRSIM_GCS_PORT = 4999
-AIRSIM2NS_GCS_PORT = 4998
+AIRSIM2NS_UAV_PORT_START = 6000
+AIRSIM2NS_GCS_PORT_START = 4998
+# Ctrl sync ZMQ port
 NS2AIRSIM_CTRL_PORT = 8000
 AIRSIM2NS_CTRL_PORT = 8001
-GCS_APP_START_TIME = 0.1
-UAV_APP_START_TIME = 0.2
-VERBOSE=True
+# UAV,GCS -> (Pub-Sub) -> Router
+NS2ROUTER_PORT = 9000
 
-'''
-Remember to reopen AirSim if non-ns3 part is modified
+VERBOSE=False
 
-default settings.json
-{
-	"SeeDocsAt": "https://github.com/Microsoft/AirSim/blob/master/docs/settings.md",
-	"SettingsVersion": 1.2,
-	"SimMode": "Multirotor",
-	"ClockSpeed": 1,
-	
-	"Vehicles": {
-		"A": {
-		  "VehicleType": "SimpleFlight",
-		  "X": 0, "Y": 0, "Z": 0
-		},
-		"B": {
-		"VehicleType": "SimpleFlight",
-		"X": 1, "Y": 0, "Z": 0
-		}
-    },
-
-	"updateGranularity": 0.01,
-            
-	"segmentSize": 1448,
-	"numOfCong": 0,
-	"congRate": 1.0,
-	"congArea": [0, 0, 10],
-	
-	"initEnbApPos": [
-		[0, 0, 0]
-	],
-
-	"nRbs": 6,
-	"TcpSndBufSize": 71680,
-	"TcpRcvBufSize": 71680,
-	"CqiTimerThreshold": 10,
-	"LteTxPower": 0,
-	"p2pDataRate": "10Gb/s",
-	"p2pMtu": 1500,
-	"p2pDelay": 1e-3,
-	"useWifi": 1,
-	
-	"isMainLogEnabled": 1,
-	"isGcsLogEnabled": 1,
-	"isUavLogEnabled": 1,
-	"isCongLogEnabled": 0,
-	"isSyncLogEnabled": 0,
-
-	"endTime":5.0
-}
-'''
 class Ctrl(threading.Thread):
     '''
     Usage:
@@ -77,6 +26,9 @@ class Ctrl(threading.Thread):
     netConfig = ctrlThread.sendNetConfig(json_path)
     ctrlThread.waitForSyncStart()
     ctrlThread.join()
+    
+    with Ctrl.Frozen():
+        # do some work
     '''
     endTime = math.inf
     mutex = threading.Lock()
@@ -167,6 +119,7 @@ class Ctrl(threading.Thread):
     @staticmethod
     def Freeze(toFreeze):
         '''
+        Internal use only
         Freeze or unfreeze the simulation clock
         This is for those threads whose computational load is most spent on AirSim APIs
         '''
@@ -179,7 +132,14 @@ class Ctrl(threading.Thread):
             if len(Ctrl.freezeSet) == 0:
                 Ctrl.freezeCond.notify()
         Ctrl.freezeCond.release()
-    
+    @staticmethod
+    def Frozen():
+        '''
+        Context manager for time frozen
+        to compensate extra time generated for simulation
+        (simulation runs slower than real-time, for example take a high quality image in AirSim)
+        '''
+        return CtrlFrozen()
     def waitForSyncStart(self):
         '''
         to synchronize start
@@ -336,4 +296,14 @@ class Ctrl(threading.Thread):
             Ctrl.isRunning = False
         self.zmqSendSocket.send_string(f'bye {Ctrl.GetEndTime()}')
         self.notifyWait()
-        
+
+class CtrlFrozen():
+    '''
+    Context manager class for Ctrl.Frozen()
+    '''
+    def __init__(self):
+        pass
+    def __enter__(self):
+        Ctrl.Freeze(True)
+    def __exit__(self, exc_type, exc_value, tb):
+        Ctrl.Freeze(False)

@@ -5,6 +5,10 @@ import pickle
 
 '''
 Custom message
+Note:
+    MsgBase-like object is not needed for AppBase.Tx(...) anymore
+    Objects that has __len__() are allowed to be transmitted
+    MsgBase-like object is not recommended since serialization may consume extra resources
 '''  
 class MsgRaw(MsgBase):
     '''

@@ -15,17 +15,13 @@
 		"A": {
 		  "VehicleType": "SimpleFlight",
 		  "X": 0, "Y": 0, "Z": 0
-		},
-		"B": {
-			"VehicleType": "SimpleFlight",
-			"X": 2, "Y": 0, "Z": 0
-		  }
+		}
     },
 
 	"updateGranularity": 0.2,
             
 	"segmentSize": 1448,
-	"numOfCong": 2,
+	"numOfCong": 0,
 	"congRate": 1.0,
 	"congArea": [0, 0, 10],
 	
@@ -33,9 +29,9 @@
 		[0, 0, 0]
 	],
 
-	"nRbs": 6,
-	"TcpSndBufSize": 10240000,
-	"TcpRcvBufSize": 10240000,
+	"nRbs": 100,
+	"TcpSndBufSize": 102400,
+	"TcpRcvBufSize": 102400,
 	"CqiTimerThreshold": 10,
 	"LteTxPower": 0,
 	"p2pDataRate": "1Gb/s",
@@ -44,9 +40,8 @@
 	"useWifi": 0,
 	
 	"isMainLogEnabled": 1,
-	"isGcsLogEnabled": 1,
-	"isUavLogEnabled": 1,
-	"isCongLogEnabled": 1,
-	"isSyncLogEnabled": 0,
-	"endTime": 10.0
+	"isGcsLogEnabled": 0,
+	"isUavLogEnabled": 0,
+	"isCongLogEnabled": 0,
+	"isSyncLogEnabled": 1
 }

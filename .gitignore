@@ -1,9 +1,7 @@
 log/*.log
-settings/selftest.json
 settings/**/pic
 settings/**/log.txt
 settings/**/**.mp4
-!settings/**/settings.json
 ns-*/
 AirSimNH/
 compressed/

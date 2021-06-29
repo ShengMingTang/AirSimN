@@ -12,22 +12,26 @@ echo "Using Unreal Env as $UNREAL_ENV"
 
 cp $1 $HOME/Documents/AirSim/settings.json
 
+cd $NS3
+./waf > "$PROJECT_DIR/log/network.log"
+cd -
+
 # output surpressed
 "$UE4_PROJECT_ROOT/$UNREAL_ENV/Binaries/Linux/$UNREAL_ENV" -windowed >/dev/null &
 unreal_pid=$!
-echo $unreal_pid
-
-
-cd $NS3
-./waf --run scratch/network/network > "$PROJECT_DIR/log/network.log" &
-ns_pid=$!
-cd -
 
 sleep 3
 cd application
-python3 main.py > "$PROJECT_DIR/log/application.log"
+python3 main.py > "$PROJECT_DIR/log/application.log" &
 app_pid=$!
 cd -
 
+cd $NS3
+./waf --run scratch/network/network >> "$PROJECT_DIR/log/network.log"
+ns_pid=$!
+cd -
+
+
 # kill $ns_pid
+echo $unreal_pid
 kill $unreal_pid

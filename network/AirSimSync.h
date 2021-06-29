@@ -15,27 +15,32 @@
 // custom includes
 #include "gcsApp.h"
 #include "uavApp.h"
-// externs
-extern zmq::context_t context;
+#include "congApp.h"
 
-
-#define NS2AIRSIM_PORT_START (5000)
-#define AIRSIM2NS_PORT_START (6000)
-#define NS2AIRSIM_GCS_PORT (4999)
-#define AIRSIM2NS_GCS_PORT (4998)
-
-#define UAV_PORT_START (3000)
-#define GCS_PORT_START (4000)
-#define CONG_PORT_START (UAV_PORT_START)
-
+/* ZMQ ports */
+// AIRSIM -> NS (For each application)
+#define AIRSIM2NS_UAV_PORT_START (6000)
+#define AIRSIM2NS_GCS_PORT_START (4998)
+// Ctrl sync ZMQ port
 #define NS2AIRSIM_CTRL_PORT (8000)
 #define AIRSIM2NS_CTRL_PORT (8001)
+// UAV,GCS -> (Pub-Sub) -> Router
+#define NS2ROUTER_PORT (9000)
 
+
+/* NS ports */
+// Starting port sequence used by each application to connect to others
+#define CONN_PORT_START (3000)
+// Starting port sequence used by each application to listen to conn
+#define LISTEN_PORT_START (4000)
+#define CONG_PORT_START (CONN_PORT_START)
+
+#define CONG_APP_TOKEN "__anony"
+
+// Start time
 #define GCS_APP_START_TIME (0.1)
 #define UAV_APP_START_TIME (0.2)
 #define CONG_APP_START_TIME (UAV_APP_START_TIME)
-
-#define CLEAN_UP_TIME (1.0)
 
 using namespace std;
 
@@ -49,7 +54,7 @@ struct NetConfig
     std::vector<string> uavsName;
     std::vector< std::vector<float> > initEnbApPos;
     
-    int nRbs; // see https://i.imgur.com/q55uR8T.png
+    int nRbs;
     uint TcpSndBufSize; // was 429496729
     uint TcpRcvBufSize; // was 429496729
     uint CqiTimerThreshold;
@@ -67,21 +72,30 @@ struct NetConfig
 
 };
 
+std::istream& operator>>(istream & is, NetConfig &config);
+std::ostream& operator<<(ostream & os, const NetConfig &config);
+
 class AirSimSync
 {
 public:
     AirSimSync(zmq::context_t &context);
     ~AirSimSync();
     void readNetConfigFromAirSim(NetConfig &config);
+    void setUavMobility(std::map< std::string, Ptr<ConstantPositionMobilityModel> > uavsMobility)
+    {
+        this->m_uavsMobility = uavsMobility;
+    }
     void startAirSim();
-    void takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsApp);
+    void takeTurn(Ptr<GcsApp> &gcsApp, std::vector< Ptr<UavApp> > &uavsApp, std::vector< Ptr<CongApp> > &congsApp);
 private:
     zmq::socket_t zmqRecvSocket, zmqSendSocket;
     float updateGranularity;
     EventId event;
     bool waitOnAirSim = true;
+
+    void mobilityUpdateDirect();
+    // use their names to refer to AirSim vehicle key and update mobility directly
+    std::map< std::string, Ptr<ConstantPositionMobilityModel> > m_uavsMobility;
 };
-std::istream& operator>>(istream & is, NetConfig &config);
-std::ostream& operator<<(ostream & os, const NetConfig &config);
 
 #endif

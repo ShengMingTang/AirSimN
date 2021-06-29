@@ -48,7 +48,7 @@
 using namespace std;
 using namespace ns3;
 
-NS_LOG_COMPONENT_DEFINE ("NS_AIRSIM");
+NS_LOG_COMPONENT_DEFINE ("AirSimN");
 
 NetConfig config;
 
@@ -64,11 +64,12 @@ int main(int argc, char *argv[])
   AirSimSync sync(context);
   sync.readNetConfigFromAirSim(config);
 
-  if(config.isMainLogEnabled) {LogComponentEnable("NS_AIRSIM", LOG_LEVEL_INFO);}
+  if(config.isMainLogEnabled) {LogComponentEnable("AirSimN", LOG_LEVEL_INFO);}
   if(config.isGcsLogEnabled) {LogComponentEnable("GcsApp", LOG_LEVEL_INFO);}
   if(config.isUavLogEnabled) {LogComponentEnable("UavApp", LOG_LEVEL_INFO);}
   if(config.isCongLogEnabled) {LogComponentEnable("CongApp", LOG_LEVEL_INFO);}
-  if(config.isSyncLogEnabled) {LogComponentEnable("AIRSIM_SYNC", LOG_LEVEL_INFO);}
+  if(config.isSyncLogEnabled) {LogComponentEnable("AirSimNSync", LOG_LEVEL_INFO);}
+  if(config.isGcsLogEnabled || config.isUavLogEnabled) {{LogComponentEnable("AirSimNAppBase", LOG_LEVEL_INFO);}}
 
   NS_LOG_INFO("Use config:" << config);
 
@@ -301,7 +302,7 @@ int main(int argc, char *argv[])
   std::map<std::string, Ptr<ConstantPositionMobilityModel> > uavsMobility;
   std::vector< Ptr<UavApp> > uavsApp;
   // GCS
-  Address gcsSinkAddress(InetSocketAddress (gcsIpfaces.GetAddress(0), GCS_PORT_START)); // get the 0th address anyway. GCS + PGW (LTE) | GCS (Wifi)
+  Address gcsSinkAddress(InetSocketAddress (gcsIpfaces.GetAddress(0), LISTEN_PORT_START)); // get the 0th address anyway. GCS + PGW (LTE) | GCS (Wifi)
   Ptr<Socket> gcsTcpSocket = Socket::CreateSocket(gcsNode, TcpSocketFactory::GetTypeId());
   Ptr<GcsApp> gcsApp = CreateObject<GcsApp>();
   // Cong
@@ -311,7 +312,7 @@ int main(int argc, char *argv[])
   NS_LOG_INFO("Add UAV app");
   for(int i = 0; i < uavNodes.GetN(); i++){  
     // GCS -> UAV (sink)
-    uint16_t uavPort = UAV_PORT_START;
+    uint16_t uavPort = CONN_PORT_START;
     Ptr<Node> uav = uavNodes.Get(i);
     Ipv4Address uavAddress = uavIpfaces.GetAddress(i);
     Ptr<Socket> uavTcpSocket = Socket::CreateSocket(uavNodes.Get(i), TcpSocketFactory::GetTypeId());
@@ -319,8 +320,12 @@ int main(int argc, char *argv[])
     Ptr<UavApp> app = CreateObject<UavApp>();
     
     uavNodes.Get(i)->AddApplication(app);
-    app->Setup(context, uavTcpSocket, uavMyAddress, gcsSinkAddress,
-      AIRSIM2NS_PORT_START + i, NS2AIRSIM_PORT_START + i, config.uavsName[i]
+    app->Setup(
+      context,
+      uavTcpSocket, uavMyAddress,
+      AIRSIM2NS_UAV_PORT_START + i,
+      config.uavsName[i],
+      gcsSinkAddress
     );
     app->SetStartTime(Seconds(UAV_APP_START_TIME));
     app->SetStopTime(Simulator::GetMaximumSimulationTime());
@@ -332,13 +337,16 @@ int main(int argc, char *argv[])
   // Add application to gcsNode
   NS_LOG_INFO("Add GCS app");
   gcsNode->AddApplication(gcsApp);
-  gcsApp->Setup(context, gcsTcpSocket, InetSocketAddress(Ipv4Address::GetAny(), GCS_PORT_START), 
-    uavsMobility,
-    AIRSIM2NS_GCS_PORT , NS2AIRSIM_GCS_PORT
+  gcsApp->Setup(context, 
+    gcsTcpSocket, InetSocketAddress(Ipv4Address::GetAny(), LISTEN_PORT_START),
+    AIRSIM2NS_GCS_PORT_START,
+    std::string("GCS")
   );
   gcsApp->SetStartTime(Seconds(GCS_APP_START_TIME));
   gcsApp->SetStopTime(Simulator::GetMaximumSimulationTime());
   
+  sync.setUavMobility(uavsMobility);
+
   // Add application to cong node
   NS_LOG_INFO("Add Cong app");
   for(int i = 0; i < congNodes.GetN(); i++){  
@@ -348,7 +356,7 @@ int main(int argc, char *argv[])
     Ptr<Socket> congTcpSocket = Socket::CreateSocket(congNodes.Get(i), TcpSocketFactory::GetTypeId());
     Address congMyAddress(InetSocketAddress(Ipv4Address::GetAny(), congPort));
     Ptr<CongApp> app = CreateObject<CongApp>();
-    std::string name("anoy");
+    std::string name(CONG_APP_TOKEN);
 
     name += to_string(i);    
     congNodes.Get(i)->AddApplication(app);
@@ -364,14 +372,14 @@ int main(int argc, char *argv[])
   // ==========================================================================
   // Monitor
   FlowMonitorHelper flowmon;
-  Ptr<FlowMonitor> uavMonitor = flowmon.Install(uavNodes.Get(0));
+  Ptr<FlowMonitor> uavMonitor = flowmon.Install(uavNodes);
   Ptr<FlowMonitor> gcsMonitor = flowmon.Install(gcsNode);
+  Ptr<FlowMonitor> congMonitor = flowmon.Install(congNodes);
 
   // ==========================================================================
   // Run
   sync.startAirSim();
-  Simulator::ScheduleNow(&AirSimSync::takeTurn, &sync, gcsApp, uavsApp);
-  // Simulator::Stop(Seconds(1.99));
+  Simulator::ScheduleNow(&AirSimSync::takeTurn, &sync, gcsApp, uavsApp, congsApp);
   Simulator::Run();
   
   // ==========================================================================
@@ -382,8 +390,8 @@ int main(int argc, char *argv[])
   FlowMonitor::FlowStatsContainer uavStats = uavMonitor->GetFlowStats ();
   for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = uavStats.begin (); i != uavStats.end (); ++i){
     Ipv4FlowClassifier::FiveTuple t = uavClassifier->FindFlow (i->first);
-    std::cout << "source=" << t.sourceAddress << ", dest=" << t.destinationAddress << " TxBytes= " << i->second.txBytes << ", throughput= "<< i->second.txBytes * 8.0 / (i->second.timeLastTxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds()+0.001) / 1000 / 1000  << " Mbps"  << endl;
-    std::cout << "packet lost=" << i->second.lostPackets << endl;
+    NS_LOG_INFO("source=" << t.sourceAddress << ", dest=" << t.destinationAddress << " TxBytes= " << i->second.txBytes << ", throughput= "<< i->second.txBytes * 8.0 / (i->second.timeLastTxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds()+0.001) / 1000 / 1000  << " Mbps");
+    NS_LOG_INFO("packet lost=" << i->second.lostPackets);
   }
 
   NS_LOG_INFO("GCS monitor:");
@@ -392,8 +400,18 @@ int main(int argc, char *argv[])
   FlowMonitor::FlowStatsContainer gcsStats = gcsMonitor->GetFlowStats ();
   for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = gcsStats.begin (); i != gcsStats.end (); ++i){
     Ipv4FlowClassifier::FiveTuple t = gcsClassifier->FindFlow (i->first);
-    std::cout << "source=" << t.sourceAddress << ", dest=" << t.destinationAddress << " TxBytes= " << i->second.txBytes << ", throughput= "<< i->second.txBytes * 8.0 / (i->second.timeLastTxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds()+0.001) / 1000 / 1000  << " Mbps"  << endl;
-    std::cout << "packet lost=" << i->second.lostPackets << endl;
+    NS_LOG_INFO("source=" << t.sourceAddress << ", dest=" << t.destinationAddress << " TxBytes= " << i->second.txBytes << ", throughput= "<< i->second.txBytes * 8.0 / (i->second.timeLastTxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds()+0.001) / 1000 / 1000  << " Mbps");
+    NS_LOG_INFO("packet lost=" << i->second.lostPackets);
+  }
+
+  NS_LOG_INFO("Cong monitor:");
+  congMonitor->CheckForLostPackets ();
+  Ptr<Ipv4FlowClassifier> congClassifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
+  FlowMonitor::FlowStatsContainer congStats = congMonitor->GetFlowStats ();
+  for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = congStats.begin (); i != congStats.end (); ++i){
+    Ipv4FlowClassifier::FiveTuple t = congClassifier->FindFlow (i->first);
+    NS_LOG_INFO("source=" << t.sourceAddress << ", dest=" << t.destinationAddress << " TxBytes= " << i->second.txBytes << ", throughput= "<< i->second.txBytes * 8.0 / (i->second.timeLastTxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds()+0.001) / 1000 / 1000  << " Mbps");
+    NS_LOG_INFO("packet lost=" << i->second.lostPackets);
   }
 
   // ==========================================================================

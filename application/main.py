@@ -1,4 +1,3 @@
-import zmq
 import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -8,6 +7,7 @@ import argparse
 from app import GcsApp, UavApp
 from msg import *
 from ctrl import *
+from router import mainRouter, context
 
 # check an Unreal Env has been set up
 import setup_path
@@ -21,29 +21,31 @@ if __name__ == '__main__':
         sys.exit()
         
     json_path = Path.home()/'Documents'/'AirSim'/'settings.json'
-
-    context = zmq.Context(5)
+    
     ctrlThread = Ctrl(context)
     netConfig = ctrlThread.sendNetConfig(json_path)
 
 
-    gcsThread = GcsApp(context=context)
-    uavsThread = [ UavApp(name=name, iden=i, context=context) for i, name in enumerate(netConfig['uavsName']) ]
+    gcsThread = GcsApp(name='GCS')
+    gcsEndPoint = mainRouter.register('GCS', AIRSIM2NS_GCS_PORT_START)
+    uavsThread = [ UavApp(name=name) for i, name in enumerate(netConfig['uavsName']) ]
+    endPoints = [mainRouter.register(name, AIRSIM2NS_UAV_PORT_START+i) for i, name in enumerate(netConfig['uavsName']) ]
+
+    mainRouter.compile()
 
     ctrlThread.waitForSyncStart()
-
     # NS will wait until AirSim sends back something from now on
 
+    mainRouter.start()
     ctrlThread.start()
-    # gcsThread.start()
     for td in uavsThread:
-        td.start()      
+        td.start()
+    # GCS run in the main thread for plotting   
     gcsThread.run()
 
+    # End of simulation
+    mainRouter.join()
     ctrlThread.join()
-    # gcsThread.join()
     for td in uavsThread:
         td.join()
-
-    plt.clf()
     sys.exit()
