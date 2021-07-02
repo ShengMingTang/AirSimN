@@ -13,7 +13,7 @@ FLOWOP_STOP="STOP"
 
 IOTIMEO = 1000
 NUM_IO_THREADS = 5
-VERBOSE=True
+VERBOSE=False
 
 class Flow():
     '''
