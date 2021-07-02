@@ -13,7 +13,7 @@ FLOWOP_STOP="STOP"
 
 IOTIMEO = 1000
 NUM_IO_THREADS = 5
-VERBOSE=False
+VERBOSE=True
 
 class Flow():
     '''
@@ -40,12 +40,28 @@ class Flow():
         self.lock = threading.Lock()
     def start(self):
         return mainRouter.startFlow(self)
+    # def stop(self):
+    #     return mainRouter.stopFlow(self)
+    def isStarted(self):
+        with self:
+            return self.bytesSent != 0
+    def isStopped(self):
+        with self:
+            return self.size == -1
+    def isDone(self):
+        with self:
+            return self.bytesSent == self.bytesRecv
     def __str__(self):
+        '''
+        Not thread safe print
+        Must be enclosed in
+        with self() :
+            # code
+        '''
         return f'Flow: {self.id} size:{self.size}, sent:{self.bytesSent}, recv:{self.bytesRecv}'
-        # with self.lock:
-            # return f'Flow: {self.id} size:{self.size}, sent:{self.bytesSent}, recv:{self.bytesRecv}'
     def __enter__(self):
         self.lock.acquire()
+        return self
     def __exit__(self, exc_type, exc_value, tb):
         self.lock.release()
 class EndPoint():
@@ -81,9 +97,8 @@ class Router(threading.Thread):
         
         # [src][dst] -> deque
         # left (oldest) ... right (latest)
-        self.senderSrc2Dst = {} # flow record on sender side
         self.recverSrc2Dst = {} # flow record on recver side
-        
+        self.flows = {} # fid->flow
         self.mutex = threading.Lock()
     def startFlow(self, f):
         '''
@@ -101,12 +116,33 @@ class Router(threading.Thread):
             with self.mutex:
                 f.id = self.flowIDCount
                 self.flowIDCount += 1
-                self.senderSrc2Dst[f.src][f.dst].append(f)
                 self.recverSrc2Dst[f.src][f.dst].append(f)
+                self.flows[f.id] = f
+                self.endPoints[f.src].zmqSendSocket.send_string(f'{f.id} {FLOWOP_SEND} {f.size} {f.dst}', 0)
                 if VERBOSE:
                     print(f'Router req: {f.id} {f.src} {FLOWOP_SEND} {f.size} {f.dst}')
-                self.endPoints[f.src].zmqSendSocket.send_string(f'{f.id} {FLOWOP_SEND} {f.size} {f.dst}', 0)
         return f
+    # def stopFlow(self, f):
+    #     '''
+    #     Just send stop request,
+    #     The record is removed after receiving response from NS
+    #     stop req
+    #     <flowid> "STOP" 
+        
+    #     NS3 should respond
+    #     <src> <dst> "STOP" <succ=0/1> <fid> <left>
+        
+    #     return f (itself)
+    #     '''
+    #     with f:
+    #         if f.id < 0:
+    #             raise RuntimeError(f'flowid {f.id} not started but set stopped')
+    #         # flow itself is not modified, to keep the previous transmission message correct
+    #         with self.mutex:
+    #             self.endPoints[f.src].zmqSendSocket.send_string(f'{f.id} {FLOWOP_STOP} ', 0)
+    #             if VERBOSE:
+    #                 print(f'Router req: {f.id} {FLOWOP_STOP} ')
+                
     def register(self, name, zmqSendPort, *args, **kwargs):
         '''
         To register an entry for an application (in py and NS)
@@ -119,7 +155,7 @@ class Router(threading.Thread):
             return self.endPoints[name]
     def recv(self, dst, block, timeout):
         '''
-        Allow an application to retrieve object
+        To Allow an application to retrieve object
         An object is visible if that corresponding flow is fully received
         '''
         try:
@@ -134,11 +170,9 @@ class Router(threading.Thread):
         '''
         with self.mutex:
             for src in self.endPoints:
-                d, dd = {}, {}
+                dd = {}
                 for dst in self.endPoints:
-                    d[dst] = deque()
                     dd[dst] = deque()
-                self.senderSrc2Dst[src] = d
                 self.recverSrc2Dst[src] = dd
     def run(self):
         # Keep listening to reponse from NS3 then update those flows
@@ -147,43 +181,49 @@ class Router(threading.Thread):
                 msg = self.sub.recv_string()
                 src, dst, op, *args = msg.split()
                 if op == FLOWOP_SEND:
-                    # <src> <dst> "SEND" <size>
+                    # <src> <dst> "SEND" <size> <fid>
+                    size = int(args[0])
+                    fid = int(args[1])
+                    if VERBOSE:
+                        print(f'fid: {fid}, {src}-S>{dst} send {size}')
                     with self.mutex:
-                        f = self.senderSrc2Dst[src][dst].popleft()
-                        size = int(args[0])
-                        if VERBOSE:
-                            print(f'{src}->{dst} send {size}')
-                        with f:
-                            f.bytesSent += size
-                            if f.bytesSent == f.size:
-                                pass
-                            elif f.bytesSent < f.size:
-                                self.senderSrc2Dst[src][dst].appendleft(f)
-                            else:
-                                raise RuntimeError(f'Calculation Error on sender side {f.id} {f.bytesSent} {f.bytesRecv}')
+                        if fid in self.flows:
+                            with self.flows[fid] as f:
+                                f.bytesSent += size
                 # sendCallback fired from NS3 will be aggregated
                 # <size> may be the sum of several packets
                 elif op == FLOWOP_RECV:
+                    # <src> <dst(this)> "RECV" <size>
                     with self.mutex:
                         size = int(args[0])
                         if VERBOSE:
-                            print(f'{src}->{dst} recv {size}')
+                            print(f'{src}-R>{dst} recv {size}')
                         while size > 0:
                             f = self.recverSrc2Dst[src][dst].popleft()
                             with f:
-                                put = min(size, f.size - f.bytesRecv)
-                                f.bytesRecv += put
-                                size -= put
-                                if f.bytesRecv == f.size:
-                                    self.endPoints[f.dst].queue.put_nowait(f)
-                                elif f.bytesRecv < f.size:
-                                    self.recverSrc2Dst[src][dst].appendleft(f)
-                                else:
-                                    raise RuntimeError(f'{f} calculation Error on recver side')
-                            
-                        
+                                if f.id in self.flows: # hasn't been removed yet
+                                    put = min(size, f.size - f.bytesRecv)
+                                    f.bytesRecv += put
+                                    size -= put
+                                    if f.bytesRecv == f.size:
+                                        self.endPoints[f.dst].queue.put_nowait(f)
+                                    elif f.bytesRecv < f.size:
+                                        self.recverSrc2Dst[src][dst].appendleft(f)
+                                    else:
+                                        raise RuntimeError(f'{f} calculation Error on recver side')
+                                else: # flow f is canceled
+                                    pass
+                # elif op == FLOWOP_STOP:
+                #     # <src> <dst> "STOP" <succ=0/1> <fid> <left>
+                #     succ = int(args[0])
+                #     fid = int(args[1])
+                #     left = int(args[2])
+                #     if VERBOSE:
+                #         print(f'{src}-x-{dst} stopped, succ {succ}, fid {fid}, left {left}')
+                #     if succ == 1:
+                #         self.flows.pop(fid)
                 else:
-                    raise RuntimeError('In Router, OP {op} not handled')
+                    raise RuntimeError(f'In Router, OP "{op}" not handled')
             except zmq.ZMQError:
                 pass
 

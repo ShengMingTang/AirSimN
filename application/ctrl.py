@@ -8,6 +8,8 @@ import sys
 import heapq
 import json
 import math
+
+# ! CONST VALUE "DON'T MODIFY ANY OF THEN"
 # Theses vars correspond to AirSimSync.h
 AIRSIM2NS_UAV_PORT_START = 6000
 AIRSIM2NS_GCS_PORT_START = 4998
@@ -17,7 +19,8 @@ AIRSIM2NS_CTRL_PORT = 8001
 # UAV,GCS -> (Pub-Sub) -> Router
 NS2ROUTER_PORT = 9000
 
-VERBOSE=False
+VERBOSE=False # to print sync message
+TIME_TEST=False # to tract time spent on ns3 and AirSim 
 
 class Ctrl(threading.Thread):
     '''
@@ -269,20 +272,33 @@ class Ctrl(threading.Thread):
         '''
         Ctrl.freezeCond.acquire()
         if len(Ctrl.freezeSet) != 0:
-            print(f'GCS, {len(Ctrl.freezeSet)}')
+            # print(f'GCS, {len(Ctrl.freezeSet)}')
             Ctrl.freezeCond.wait()
         Ctrl.freezeCond.release()
         try:
             # ns3 has finished the previous simulation step
+            if TIME_TEST:
+                t0 = time.time()
+            
             msg = self.zmqRecvSocket.recv()
+            
+            if TIME_TEST:
+                t1 = time.time()
+                self.nsSpent += (t1 - t0)
+                print(f'<NS spent> {t1 - t0} sec')
+            
             # this will block until resumed
             step = self.nextSimStepSize()
             self.client.simContinueForTime(step)
             with Ctrl.mutex:
                 Ctrl.simTime += step
-                self.zmqSendSocket.send_string(f'{step}')
-                if VERBOSE:
-                    print(f'Time = {Ctrl.simTime}')
+            self.zmqSendSocket.send_string(f'{step}')
+            if TIME_TEST:
+                t0 = time.time()
+                self.AirSimSpent += (t0 - t1)
+                print(f'<AirSim spent> {t0 - t1} sec')
+            if VERBOSE:
+                print(f'[Ctrl], Time = {Ctrl.simTime}')
             self.notifyWait()
         except zmq.ZMQError:
             print('ctrl msg not received')
@@ -290,12 +306,17 @@ class Ctrl(threading.Thread):
         '''
         control and advance the whole simulation
         '''
+        if TIME_TEST:
+            self.nsSpent = 0
+            self.AirSimSpent = 0
         while Ctrl.ShouldContinue():
             self.advance()
         with Ctrl.mutex:
             Ctrl.isRunning = False
         self.zmqSendSocket.send_string(f'bye {Ctrl.GetEndTime()}')
         self.notifyWait()
+        if TIME_TEST:
+            print(f'<NS spent {self.nsSpent}>, <AirSim spent {self.AirSimSpent}>')
 
 class CtrlFrozen():
     '''

@@ -17,17 +17,17 @@ cd $NS3
 cd -
 
 # output surpressed
-"$UE4_PROJECT_ROOT/$UNREAL_ENV/Binaries/Linux/$UNREAL_ENV" -windowed >/dev/null &
+"$UE4_PROJECT_ROOT/$UNREAL_ENV/Binaries/Linux/$UNREAL_ENV" -windowed >/dev/null 2>&1 &
 unreal_pid=$!
 
 sleep 3
 cd application
-python3 main.py > "$PROJECT_DIR/log/application.log" &
+python3 main.py > "$PROJECT_DIR/log/application.log" 2>&1&
 app_pid=$!
 cd -
 
 cd $NS3
-./waf --run scratch/network/network >> "$PROJECT_DIR/log/network.log"
+./waf --run scratch/network/network >> "$PROJECT_DIR/log/network.log" 2>&1
 ns_pid=$!
 cd -
 

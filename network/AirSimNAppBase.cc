@@ -46,6 +46,7 @@ void AirSimNAppBase::acceptCallback(Ptr<Socket> socket, const Address& from)
 void AirSimNAppBase::sendCallback(Ptr<Socket> socket, uint32_t txSpace)
 {
     triggerFlow(socket, txSpace);
+    // NS_LOG_INFO(m_name << " is sending " << txSpace << " bytes");
 }
 /*
 Auth or forward to application code
@@ -95,6 +96,7 @@ void AirSimNAppBase::recvCallback(Ptr<Socket> socket)
 void AirSimNAppBase::connectSuccCallback(Ptr<Socket> socket)
 {
     sendAuth(socket);
+    socket->SetSendCallback(MakeCallback(&AirSimNAppBase::sendCallback, this));
 }
 /* simply report a FATAL ERROR */
 void AirSimNAppBase::connectFailCallback(Ptr<Socket> socket)
@@ -135,30 +137,33 @@ void AirSimNAppBase::sendAuth(Ptr<Socket> socket)
 
 /*
 Either keep transmitting the current flow or auto trigger the next one
-<src(this)> <dst> "SEND" <size>
+<src(this)> <dst> "SEND" <size> <fid>
 */
 void AirSimNAppBase::triggerFlow(Ptr<Socket> socket, uint32_t txSpace)
 {
+    // NS_LOG_INFO(m_name << ": flow left: " << m_flows2Dst[socket].size());
     // clear completed flows if any
     while(!m_flows2Dst[socket].empty() && m_flows[m_flows2Dst[socket].front()].left <= 0){
-        m_flows.erase(m_flows2Dst[socket].front());
+        int finished = m_flows2Dst[socket].front();
+        int erased;
+        NS_LOG_INFO("[" << m_name << "], finished " << finished);
+        erased = m_flows.erase(finished);
         m_flows2Dst[socket].pop();
     }
-    if(!m_flows2Dst[socket].empty()){
+    if(!m_flows2Dst[socket].empty() && txSpace > 0){
         int fid = m_flows2Dst[socket].front();
         int size = std::min(txSpace, m_flows[fid].left);
         Ptr<Packet> packet = Create<Packet>(size);
         
         int res = socket->Send(packet);
         if(res >= 0){
-            NS_LOG_INFO(m_name << " trigger flow, size= " << size << ", got res= " << res);
             m_flows[fid].left -= size;
         }
 
         // report to py app
         std::stringstream ss;
         std::string s;
-        ss << m_name << " " << m_socket2Name[socket] << " " << FLOWOP_SEND << " " << packet->GetSize();
+        ss << m_name << " " << m_socket2Name[socket] << " " << FLOWOP_SEND << " " << packet->GetSize() << " " << m_flows2Dst[socket].front();
         s = ss.str();
         zmq::message_t message(s.size());
 
@@ -188,6 +193,7 @@ void AirSimNAppBase::flowTransfer(std::string dst)
 /*
 Process request from py app
 <flowid> "SEND" <size> <dst>
+<flowid> "STOP" 
 */
 void AirSimNAppBase::processReq(void)
 {
@@ -232,6 +238,26 @@ void AirSimNAppBase::processReq(void)
                 NS_LOG_INFO("[" << m_name << "], queue flow " << fid);
             }
         }
+        // else if(op == FLOWOP_STOP){ // a flow can be stopped if it was not started yet
+        //     int succ = 0;
+        //     int left = -1;
+        //     std::string dst = "None";
+        //     if(m_flows.find(fid) != m_flows.end()){
+        //         left = m_flows[fid].left;
+        //         dst = m_flows[fid].dst;
+        //         if(m_flows2Dst[m_name2Socket[dst]].front() != fid){ // not started
+        //             succ = 1;
+        //             m_flows[fid].left = -1; // set to < 0 means canceled if sendCallback may race with this (but I think it won't)
+        //         }
+        //     }
+        //     std::stringstream sss;
+        //     sss << m_name << " " << dst << " " << op << " " << succ << " " << fid << " " << left;
+        //     std::string s = sss.str();
+        //     NS_LOG_INFO("[" << m_name << "], " << s);
+        //     zmq::message_t message(s.size());
+        //     memcpy((uint8_t*)(message.data()), s.data(), s.size());
+        //     m_zmqSocketSend.send(message, zmq::send_flags::dontwait);
+        // }
         else{
             NS_FATAL_ERROR("op:\"" << op << "\" not handled");
         }

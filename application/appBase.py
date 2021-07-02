@@ -29,22 +29,31 @@ class AppBase(metaclass=abc.ABCMeta):
     def __init__(self, name):
         super().__init__()
         self.name = name
-    def Tx(self, obj, toName=None):
+    def createFlow(self, obj, toName):
+        '''
+        Create a flow object that can be started later
+        self.Tx(obj, toName) is equivalent to this but start immediately
+        f = self.createFlow(obj, toName)
+        f.start()
+        '''
+        return Flow(self.name, toName, obj)
+    def Tx(self, obj, toName):
         '''
         @param obj: any object that supports __len__()
         To start a flow
-        return len(obj)
+        return Flow or [Flow, ...]
         '''
+        ret = []
         if isinstance(obj, (list, tuple)):
             for msg in obj:
                 f = Flow(self.name, toName, msg)
                 f.start()
-            return [len(msg) for msg in obj]
+                ret.append(f)
+            return ret
         else:
             f = Flow(self.name, toName, obj)
             f.start()
-            return len(obj)
-        
+            return f       
     def Rx(self, block=False, timeout=None):
         '''
         @param block: bool, True than block until a msg has arrived (usually False)
@@ -61,13 +70,16 @@ class UavAppBase(AppBase, threading.Thread):
     '''
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+    def createFlow(self, obj, toName=None):
+        toName = toName if toName is not None else 'GCS'
+        return super().createFlow(obj, toName)
     def Tx(self, obj, toName=None):
         '''
         Syntax sugar for backward compatible
         toName will be 'GCS' by default if not specified
         '''
         toName = toName if toName is not None else 'GCS'
-        super().Tx(obj, toName)
+        return super().Tx(obj, toName)
     def selfTest(self, **kwargs):
         '''
         Basic utility test including Tx, Rx, MsgRaw
@@ -141,6 +153,7 @@ class UavAppBase(AppBase, threading.Thread):
         elif TARGET == 'stream':
             self.streamingTest(*args, **kwargs);
         print(f'{self.name} joined')
+
 class GcsAppBase(AppBase, threading.Thread):
     '''
     GcsAppBase(name=name)
