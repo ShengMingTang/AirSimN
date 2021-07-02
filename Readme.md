@@ -54,7 +54,8 @@ sh run.sh path_to_setting.json
 Add these keys to **first level** of your settings.json, main program will parse this and configure ns-3 topology
 
 Note that you need to **reload AirSim** if you modifiy something related to AirSim configuration (for example, the number of drones)
-> There is no default value for **"Vehicles"**. You should specify this explicitly!
+> * There is no default value for **"Vehicles"**. You should specify this explicitly!
+> * Name of each UAV must not contain any white space or 'GCS'
 
 ``` json
 // default values in settings.json except for "Vehicles"
@@ -144,12 +145,21 @@ The only files you will possibly write on are
 
 ### Simulation Clock Management API
 In ctrl.py, there is a class *ctrl* which provides us with several simulation clock managment
-* **Ctrl.Wait(nsec)**:, delay nsec seconds, blocked until time is expired
+* **Ctrl.Wait(nsec, cb)**: selay nsec seconds, blocked until time is expired, cb() is fired (with no arguments) is provided
+* **Ctrl.WaitUntil(time, cb)**: similar to Ctrl.Wait() but this wait for an absolute time point
 * **Ctrl.SetEndTime(when)**: set when this simulation should end in absolute simulation time. You will call this when your tasks are all done especially "endTime" is not specified in settings.json.
 * **Ctrl.GetSimTime()**: get the current simulation time in second(s) as float
 * **Ctrl.ShouldContinue()**: return bool to indicate that simulation clock is still maintained or not. Usually you will use this in an infinite while loop.
+* **Ctrl.Frozen()**: context manager for freeze the simulation clock
+    > This is mainly used for compensating for extra work done for simulation. For example, client.simGetImage(...) may require much work than in reality. The simulation clock must be frozen to keep elapsed time correct.
 ``` python
+# For poll is the simulation is over
 while Ctrl.ShouldContinue():
+    # Do whatever you want
+    pass
+
+# Freeze the simulation clock
+with Ctrl.Frozen():
     # Do whatever you want
     pass
 ```
@@ -159,7 +169,6 @@ while Ctrl.ShouldContinue():
 ![](https://i.imgur.com/Of6nlkF.png)
 In app.py,  set up your custom task
 ``` Python
-from appBase import *
 import setup_path
 import airsim
 from appBase import *
@@ -172,31 +181,19 @@ class UavApp(UavAppBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # any self.attribute that you need
-        
-    def customfn(self, *args, **kwargs):
-        # as your new target function
-        pass
-
     def run(self, *args, **kwargs):
-        self.beforeRun()
-        self.customfn(*args, **kwargs)
-        self.afterRun()
-        print(f'{self.name} joined')
+        return super().run(*args, **kwargs)
+        # or implement your task
+        
         
 class GcsApp(GcsAppBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # any self.attribute that you need
-        
-    def customfn(self, *args, **kwargs):
-        # as your new target function
-        pass
-
     def run(self, *args, **kwargs):
-        self.beforeRun()
-        self.customfn(*args, **kwargs)
-        self.afterRun()
-        print(f'{self.name} joined')
+        return super().run(*args, **kwargs)
+        # or implement your task
+
 ```
 A ready-to-run example is at **mpeg-demo** branch
 
@@ -231,45 +228,36 @@ class YourMsg(MsgBase):
 
 ---
 
+### The Flow Class
+Flow is the basic transmission unit of a pair of sender and receiver. This store some neccessary information about the whole transmission and enables high performance in NS.
+* **Flow.isStarted()**: returns bool to indicate it is started or not
+* **Flow.isDone()**: returns bool to indicate the flow is completed or not
+
+---
+
+### The Router Class
+
+Router is for routing flow between py application and NS application. This enables fast message transmission instead of tedious data copying.
+Router interfacts heavily with the Flow class.
+
+---
+
 ### Application Level Message Exchange
 ![](https://i.imgur.com/ggVBwGT.png)
+Args:
+* msg:
+    1. MsgBase-like object or any object that supports len()
+    2. iterable of objects mentioned above
+* toName: 
+    1. to specify the target receiver in string (keys in "Vehicles" in setting.json)
+    2. default to 'GCS' for UavApp
 
-UavApp:
-* **res = self.Tx(msg)** means that the current UAV transmits msg back to GCS. 
-    * **msg** sould be of type *MsgBase* or *iterable of MsgBase*
-    * for **msg** is a **single MsgBase-like object**, a single int **res** is returned. **res** > 0 means success, **res** < 0 means try again.
-    * for **msg** is an iterable object, a list of equal number of **res** is returned
-
-* **res = self.Rx()** 
-    * return **msg** or **None** depending whether a msg is available(in FIFO sense)
-
-GcsApp:
-
-* **res = self.Tx(msg, toName=receiver)** means that the GCS transmits msg to an UAV named *receiver*(as string). Here receiver refers to a key in **"Vehicles" in settings.json**
-    * return value has the same meaning as in UavApp.Tx()
-
-* **res = self.Rx()** will return **(sender, msg)** or **None** depending whether a msg is available(in FIFO sense) 
-
-In app.py you can write:
-``` Python
-# In your customfn in UavApp
-msg = customMsg() # MsgBase like object
-res = self.Tx(msg) # res > 0 means success, <0 means please try again (network congested)
-recv = self.Rx()
-if recv is not None: # some messages are available to read
-    pass
-else: # no message is available
-    pass
-    
-# In your customfn in GcsApp
-msg = customMsg() # MsgBase like object
-res = self.Tx(msg, receiver) # res > 0 means success, <0 means please try again (network congested)
-# receiver is a key(as string) in "Vehicles" in setting.json
-recv = self.Rx()
-if recv is not None: # some messages are available to read
-    sender, recv = recv
-    pass
-else: # no message is available
-    pass
-
+In UavApp or GcsApp,
+* **self.Tx(msg, toName)**: this will start transmitting msg to toName immediately and cannot be stopped or interrupted later.
+* **self.createFlow(msg, toName)**: this will create a flow object between the caller and ther receiver.
+```Python
+# For example, in UavApp
+f = self.createFlow(msg)
+# flow is just created not started
+f.start() # start the flow
 ```
