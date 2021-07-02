@@ -225,6 +225,11 @@ class Ctrl(threading.Thread):
         s += f'{netConfig["useWifi"]} '
         s += f'{netConfig["isMainLogEnabled"]} {netConfig["isGcsLogEnabled"]} {netConfig["isUavLogEnabled"]} {netConfig["isCongLogEnabled"]} {netConfig["isSyncLogEnabled"]} '
         
+        # check for name validity
+        for name in netConfig['uavsName']:
+            if ' ' in name or 'GCS' in name:
+                raise ValueError(f'UAV name: {name} is illegal, any whitespace or literally GCS is not allowd')
+        
         self.zmqSendSocket.send_string(s)
         # rm timeout
         # self.zmqRecvSocket.setsockopt(zmq.RCVTIMEO, int(10*1000*netConfig["updateGranularity"]))
