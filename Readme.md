@@ -255,6 +255,7 @@ Args:
 In UavApp or GcsApp,
 * **self.Tx(msg, toName)**: this will start transmitting msg to toName immediately and cannot be stopped or interrupted later.
 * **self.createFlow(msg, toName)**: this will create a flow object between the caller and ther receiver.
+* **self.Rx()**: returns (src, msg) pair in FIFO.
 ```Python
 # For example, in UavApp
 f = self.createFlow(msg)
