@@ -192,7 +192,7 @@ void AirSimSync::mobilityUpdateDirect()
         float x, y, z;
         x = state.pose.position.x();
         y = state.pose.position.y();
-        y = state.pose.position.z();
+        z = state.pose.position.z();
         ns3::Simulator::ScheduleNow(&ConstantPositionMobilityModel::SetPosition, it.second, Vector(x, y, z));
     }
 }
